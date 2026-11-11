@@ -1,0 +1,29 @@
+{
+  "name": "talenttrack",
+  "version": "1.0.00",
+  "type": "module",
+  "private": true,
+  "description": "TalentTrack - Plataforma SaaS Multi-Empresa de Recursos Humanos, Legajos 360°, Matriz de Skills, Capacitaciones con Firma Digital y Semáforo de Vencimientos",
+  "scripts": {
+    "test": "node tests/run_tests.js",
+    "test:security": "node ../AiAppFactory/tools/security-guardian/index.mjs .",
+    "security:full": "node ../AiAppFactory/tools/security-guardian/index.mjs . --strict",
+    "test:all": "node tests/run_tests.js && node ../AiAppFactory/tools/security-guardian/index.mjs .",
+    "version:bump": "node scripts/version-bump.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "keywords": [
+    "talenttrack",
+    "rrhh",
+    "recursos-humanos",
+    "skills",
+    "capacitaciones",
+    "firma-digital",
+    "licencias-conducir",
+    "bpm",
+    "art",
+    "saas"
+  ],
+  "author": "AiAppFactory Standard",
+  "license": "UNLICENSED"
+}

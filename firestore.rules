@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'superadmin' || 
+        request.auth.token.email == 'admin@talenttrack.app'
+      );
+    }
+    
+    function belongsToCompany(companyId) {
+      return isAuthenticated() && (
+        request.auth.token.companyId == companyId ||
+        request.auth.token.tenantId == companyId
+      );
+    }
+
+    // 1. Catálogo Global de Competencias Estándar (Lectura autenticada, escritura solo superadmin)
+    match /standard_skills/{skillId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // 2. Empresas (Tenants)
+    match /companies/{companyId} {
+      allow read: if isSuperAdmin() || belongsToCompany(companyId);
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || belongsToCompany(companyId);
+    }
+
+    // 3. Colaboradores y Legajos por Empresa
+    match /companies/{companyId}/employees/{employeeId} {
+      allow read: if isSuperAdmin() || belongsToCompany(companyId);
+      allow create, update, delete: if isSuperAdmin() || belongsToCompany(companyId);
+    }
+
+    // 4. Cursos y Capacitaciones con Actas de Asistencia
+    match /companies/{companyId}/courses/{courseId} {
+      allow read: if isSuperAdmin() || belongsToCompany(companyId);
+      allow create: if isSuperAdmin() || belongsToCompany(companyId);
+      // Un curso completado y firmado es inmutable (cadena de custodia)
+      allow update: if (isSuperAdmin() || belongsToCompany(companyId)) &&
+                   resource.data.status != 'COMPLETED';
+      allow delete: if isSuperAdmin() && resource.data.status != 'COMPLETED';
+    }
+
+    // 5. Libro de Auditoría y Semáforos (Append-Only inmutable)
+    match /companies/{companyId}/audit_logs/{logId} {
+      allow read: if isSuperAdmin() || belongsToCompany(companyId);
+      allow create: if isSuperAdmin() || belongsToCompany(companyId);
+      allow update, delete: if false; // Inmutable
+    }
+  }
+}

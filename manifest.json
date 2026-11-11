@@ -1,0 +1,17 @@
+{
+  "name": "TalentTrack - Gestión Integral de RRHH",
+  "short_name": "TalentTrack",
+  "description": "Plataforma SaaS de Recursos Humanos, Legajos 360, Skills y Capacitaciones con Firma Digital",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><circle cx='50' cy='38' r='18' fill='white'/><path d='M25 80 C 25 60, 75 60, 75 80 Z' fill='white'/></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
