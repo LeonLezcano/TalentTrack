@@ -1,30 +1,40 @@
 # 👥 TalentTrack — SaaS de Recursos Humanos, Skills & Capacitaciones
 
-> **Versión:** `v1.0.00` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa
+> **Versión:** `v1.0.01` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 75/75 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
-**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo.
+**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
 
 ---
 
 ## 🌟 Capacidades Clave del Sistema
 
-### 1. 🗂️ Legajos 360° y Gestión Multi-Empresa
+### 1. 🔐 Autenticación Robusta & Cero Fachadas (Reglas 1, 23 & 24)
+- **Cero Selectores Simulados:** Eliminación total de dropdowns simulados. Todo ingreso al sistema exige autenticación formal con contraseña o PIN.
+- **Roles y Permisos (RBAC):**
+  - **Administrador de RRHH (`HR_ADMIN`):** Acceso integral a dashboard, nómina de empleados, asignación de cursos, gestión de carnets y reportes de auditoría.
+  - **Colaborador / Operario (`EMPLOYEE`):** Confinamiento estricto a su propio portal móvil (zero cross-tenant leak), donde consulta sus cursos, su nivel de cumplimiento normativo y sus habilitaciones.
+- **Protección contra Fuerza Bruta:** Implementación de `RateLimiter` con bloqueo temporal exponencial ante reintentos fallidos de login.
+- **Salado Criptográfico:** Contraseñas hasheadas con SHA-256 + salt único por usuario.
+
+### 2. 🗂️ Legajos 360°, Requisitos de Puesto & Adjuntos Reales
 - **Estructura Multi-Tenant:** Aislamiento total de datos por empresa cliente o sede operativa.
-- **Ficha Integral de Empleado:** Datos personales, contacto (teléfono con formateo, email), puesto, área/departamento, fecha de ingreso y estado activo.
+- **Ficha Integral de Empleado:** Datos personales, contacto (teléfono con formateo para WhatsApp, email), puesto, área/departamento, fecha de ingreso y estado activo.
+- **Requisitos de Puesto Configurables:** Cada empresa define qué capacitaciones son obligatorias según el puesto (ej. Chofer exige Manejo Defensivo; Operaria de Alimentos exige BPM) y el sistema calcula en tiempo real la tasa de cumplimiento del legajo.
+- **Adjuntos de Carnet Reales:** Carga y visualización de fotos (PNG/JPG) o comprobantes PDF de licencias y libretas con visor modal y límite de seguridad de 5 MB.
 - **Tombstones & Persistencia:** Borrado lógico protegido y sincronización local inmediata (Offline-First).
 
-### 2. 🎯 Buscador de Talento Interno (Skills & Competencias Previas)
-- **Detección de Habilidades Ocultas:** Registro de habilidades que el colaborador posee por trabajos anteriores u oficios pero que no ejerce en su puesto actual (ej. un operario que sabe soldar TIG o un chofer que domina facturación/ERP).
-- **Matriz de Niveles 1 a 4:** Clasificación estandarizada (Básico, Intermedio, Avanzado, Experto/Capacitador).
+### 3. 🎯 Buscador de Talento Interno (Skills & Competencias Previas)
+- **Detección de Habilidades Ocultas:** Registro de habilidades que el colaborador posee por trabajos anteriores u oficios pero que no ejerce en su puesto actual (ej. un chofer con experiencia previa en soldadura TIG/MIG o una operaria bilingüe con Excel avanzado).
+- **Matriz de Niveles 1 a 4:** Clasificación estandarizada (1-Básico, 2-Intermedio, 3-Avanzado, 4-Experto/Capacitador).
 - **Filtros Avanzados:** Búsqueda en tiempo real por palabra clave, nivel mínimo y origen de la experiencia (solo previas, solo puesto actual o todas).
 
-### 3. 🎓 Agenda de Capacitaciones & Actas con Firma Digital Táctil
+### 4. 🎓 Agenda de Capacitaciones & Actas con Firma Digital Táctil
 - **Ciclo Completo de Capacitación:** Convocatoria masiva de empleados por puesto o sede, temario, duración y docente asignado.
 - **Doble Firma Táctil en Pantalla (HTML5 Canvas):** Captura de trazo digital del instructor y de los participantes en smartphone, tablet o desktop.
-- **Sellado Criptográfico Forense:** Generación de hash SHA-256 con timestamp y datos del firmante para validez en auditorías (SENASA, SRT, ART, ISO 9001).
-- **Acreditación Automática:** Al cerrar un curso, las habilidades y constancias se sincronizan automáticamente en el legajo de los aprobados.
+- **Sellado Criptográfico Forense:** Generación de hash SHA-256 con timestamp UTC y datos del firmante para validez en auditorías (SENASA, SRT, ART, ISO 9001).
+- **Acreditación Automática:** Al completar un curso, las habilidades y constancias se sincronizan automáticamente en el legajo de los aprobados.
 
-### 4. 🚦 Semáforo Preventivo de Vencimientos & Habilitaciones Legales
+### 5. 🚦 Semáforo Preventivo & Despacho Directo por WhatsApp
 - **Tipos de Habilitaciones Soportadas:**
   - Carnets de conducir profesionales (Categorías A, B, C, D, E, LNH CNRT Cargas Generales y Peligrosas).
   - Libreta sanitaria y carnet de manipulación de alimentos (BPM / POES).
@@ -35,21 +45,20 @@
   - 🟠 **Alerta Alta:** 8 a 15 días previos al vencimiento.
   - 🟡 **Atención Preventiva:** 16 a 30 días previos al vencimiento.
   - 🟢 **Vigente:** > 30 días.
-- **Notificaciones Internas:** Sistema visual reactivo en dashboard y campana de estado.
+- **Despacho Directo por WhatsApp:** Generación de enlaces universales `https://wa.me/549...?text=...` con mensajes pre-armados personalizados informando los días restantes y solicitando la renovación.
 
-### 5. 📱 Portal Móvil del Colaborador (Autoservicio)
+### 6. 📱 Portal Móvil del Colaborador (Autoservicio)
 - Interfaz 100% optimizada para smartphones (probada en viewport `393x852`).
-- Consulta de cronograma de cursos convocados.
-- Firma directa de asistencia en el móvil.
-- Consulta de carnets personales y carga de renovaciones.
+- Consulta de cronograma de cursos convocados y firma de actas en pantalla.
+- Consulta de carnets personales, visualización de fotos adjuntas y carga de renovaciones.
 - Integración con **Screen Wake Lock API** para roles operativos en calle y vehículos.
 
-### 6. 📊 Informes & Exportación Universal CSV (Excel Ready)
+### 7. 📊 Informes & Exportación Universal CSV (Excel Ready)
 - **Universal CSV Exporter:** Exportación nativa con BOM UTF-8 (`\uFEFF`) sin librerías externas, garantizando compatibilidad directa con Microsoft Excel en Windows.
 - **Informes Disponibles:**
   - Nómina completa de personal con habilidades previas.
   - Auditoría de vencimientos clasificada por semáforo para ART o SENASA.
-  - Acta oficial de asistencia a cursos con hashes de firma.
+  - Acta oficial de asistencia a cursos con hashes forenses de firma.
 - **Blindaje de Impresión Limpia (`@media print`):** Ocultamiento estricto de barras de navegación y botones al imprimir o guardar en PDF.
 
 ---

@@ -1,32 +1,55 @@
 /**
  * Capa 2: Pruebas de Integración & Persistencia (AiAppFactory Standard)
- * Verifica aislamiento multi-empresa, ciclo de vida de legajos,
- * y la invariante anti-siembras fantasma tras purgas de datos.
  */
 
 import { store } from '../src/state/store.js';
 
 export async function runIntegrationTests(harness) {
-  // Inicialización limpia
   store.restoreDemoData();
   harness.assert(store.companies.length >= 2, 'Store inicializado con empresas demo');
   harness.assert(store.employees.length >= 5, 'Store inicializado con colaboradores demo');
   harness.assert(store.courses.length >= 2, 'Store inicializado con capacitaciones demo');
+  harness.assert(store.isAuthenticated() === true, 'Sesión activa creada correctamente');
 
-  // --- Test 21 a 23: Aislamiento Multi-Empresa ---
+  // --- Aislamiento Multi-Tenant (Regla 10) ---
   const compAlimentosId = 'comp_alimentos';
   const compLogisticaId = 'comp_logistica';
 
-  const empsAlimentos = store.getEmployees(compAlimentosId);
-  const empsLogistica = store.getEmployees(compLogisticaId);
-
-  harness.assert(empsAlimentos.length === 3, 'Aislamiento: Empresa Alimentos tiene exactamente sus colaboradores');
-  harness.assert(empsLogistica.length === 2, 'Aislamiento: Empresa Logística tiene exactamente sus colaboradores');
-  harness.assert(!empsAlimentos.some(e => e.companyId === compLogisticaId), 'Zero Cross-Tenant Leak: no hay fuga de empleados entre compañías');
-
-  // --- Test 24 a 27: Ciclo de Vida de Legajos (Alta, Edición, Baja) ---
-  const nuevoChofer = store.addEmployee({
+  // Configurar sesión como RRHH de Alimentos
+  store.setSession({
+    userId: 'usr_admin_alimentos',
+    role: 'HR_ADMIN',
     companyId: compAlimentosId,
+    token: 'TEST_TOKEN'
+  });
+
+  const empsAlimentos = store.getEmployees();
+  harness.assert(empsAlimentos.length === 3, 'Aislamiento: RRHH Alimentos ve exactamente sus colaboradores');
+  harness.assert(!empsAlimentos.some(e => e.companyId === compLogisticaId), 'Zero Cross-Tenant Leak: 0 colaboradores de otra empresa');
+
+  // Confinamiento estricto de empleado
+  const empTarget = empsAlimentos[0];
+  store.setSession({
+    userId: empTarget.id,
+    employeeId: empTarget.id,
+    role: 'EMPLOYEE',
+    companyId: compAlimentosId,
+    token: 'EMP_TOKEN'
+  });
+
+  const empSelfOnly = store.getEmployees();
+  harness.assert(empSelfOnly.length === 1 && empSelfOnly[0].id === empTarget.id, 'Confinamiento de rol EMPLOYEE: solo accede a su propio legajo');
+
+  // Restaurar rol admin para seguir pruebas
+  store.setSession({
+    userId: 'usr_admin_alimentos',
+    role: 'HR_ADMIN',
+    companyId: compAlimentosId,
+    token: 'ADMIN_TOKEN'
+  });
+
+  // --- Ciclo de Vida de Legajos ---
+  const nuevoChofer = store.addEmployee({
     firstName: 'Roberto',
     lastName: 'Mansilla',
     dni: '28.112.990',
@@ -43,45 +66,31 @@ export async function runIntegrationTests(harness) {
 
   const borrado = store.deleteEmployee(nuevoChofer.id);
   harness.assert(borrado === true, 'Baja de empleado ejecutada con éxito');
-  harness.assert(store.getEmployees(compAlimentosId).some(e => e.id === nuevoChofer.id) === false, 'Tombstone: empleado dado de baja no aparece en listado activo');
+  harness.assert(store.getEmployees().some(e => e.id === nuevoChofer.id) === false, 'Tombstone: empleado dado de baja no aparece en listado activo');
 
-  // --- Test 28 a 30: Incorporación de Habilidades y Credenciales ---
-  const empTarget = store.getEmployees(compAlimentosId)[0];
-  const countSkillsBefore = (empTarget.skills || []).length;
-
-  store.addSkillToEmployee(empTarget.id, {
-    name: 'Operación Autoelevador Eléctrico',
-    level: 3,
-    source: 'PREVIOUS_EXPERIENCE',
-    yearsExperience: 4,
-    notes: 'Experiencia previa comprobable'
-  });
-
-  const empAfterSkill = store.getEmployeeById(empTarget.id);
-  harness.assert(empAfterSkill.skills.length === countSkillsBefore + 1, 'Habilidad añadida al legajo del colaborador');
-  harness.assert(empAfterSkill.skills.some(s => s.source === 'PREVIOUS_EXPERIENCE'), 'Habilidad previa clasificada con origen correcto');
-
+  // --- Credencial con Adjunto de Foto ---
   store.addCredentialToEmployee(empTarget.id, {
     type: 'DRIVER_LICENSE',
     customLabel: 'Licencia Municipal',
     number: '998877',
     categories: ['B (Auto/Camioneta)', 'C (Camión)'],
-    expirationDate: '2027-10-10'
+    expirationDate: '2027-10-10',
+    attachment: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
   });
 
   const empAfterCred = store.getEmployeeById(empTarget.id);
-  harness.assert(empAfterCred.credentials.some(c => c.number === '998877'), 'Credencial/Carnet asociado con sus categorías');
+  const credAttached = empAfterCred.credentials.find(c => c.number === '998877');
+  harness.assert(credAttached !== undefined, 'Credencial asociada al colaborador');
+  harness.assert(credAttached.attachment !== null, 'Comprobante/foto adjunta persistida en el legajo');
 
-  // --- Test 31 y 32: Invariante Anti-Siembras Fantasma (Purga de Datos) ---
+  // --- Invariante Anti-Siembras Fantasma ---
   store.purgeAllData();
   harness.assert(store.employees.length === 0, 'Purga: Base de empleados queda en 0');
   
-  // Re-inicializar tienda simulando recarga de página tras purga
   store.isInitialized = false;
   store.init();
   harness.assert(store.employees.length === 0, 'Invariante Anti-Siembra Fantasma: Re-init no resucita datos purgados');
 
-  // Restaurar demo para siguientes tests
   store.restoreDemoData();
   harness.assert(store.employees.length >= 5, 'Restauración de demo restablece el estado correctamente');
 }

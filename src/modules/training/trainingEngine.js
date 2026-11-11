@@ -1,7 +1,5 @@
 /**
- * TalentTrack Training & LMS Engine
- * Coordinates course scheduling, mandatory position requirements,
- * dual digital signature capture (trainer + attendees) and legajo certification sync.
+ * TalentTrack Training & LMS Engine (Updated with Configurable Position Requirements)
  */
 
 export const TRAINING_CATEGORIES = {
@@ -14,18 +12,37 @@ export const TRAINING_CATEGORIES = {
 
 export class TrainingEngine {
   /**
-   * Evaluates mandatory training compliance for an employee based on their job role.
+   * Evaluates mandatory training compliance for an employee dynamically based on their company position configuration.
    * @param {Object} employee 
    * @param {Array<Object>} allCourses 
-   * @returns {{ completedCount: number, pendingCount: number, requirements: Array<Object> }}
+   * @param {Object} [storeInstance=null]
+   * @returns {{ completedCount: number, pendingCount: number, complianceRate: number, completedRequirements: Array<Object>, pendingRequirements: Array<Object> }}
    */
-  static evaluateEmployeeCompliance(employee, allCourses = []) {
-    const roleRequirements = this.getMandatoryRequirementsForRole(employee.role);
+  static evaluateEmployeeCompliance(employee, allCourses = [], storeInstance = null) {
+    let roleRequirements = [];
+
+    // 1. Consultar configuración de puesto en la empresa si existe
+    if (storeInstance && typeof storeInstance.getPositionRequirements === 'function') {
+      const customConfig = storeInstance.getPositionRequirements(employee.role);
+      if (customConfig && customConfig.mandatoryTrainings) {
+        roleRequirements = customConfig.mandatoryTrainings.map(tCat => ({
+          id: `req_${tCat.toLowerCase()}`,
+          title: TRAINING_CATEGORIES[tCat]?.label || tCat,
+          category: tCat,
+          periodicityMonths: 12
+        }));
+      }
+    }
+
+    // 2. Si no hay configuración personalizada, usar la matriz base
+    if (roleRequirements.length === 0) {
+      roleRequirements = this.getMandatoryRequirementsForRole(employee.role);
+    }
+
     const completedRequirements = [];
     const pendingRequirements = [];
 
     roleRequirements.forEach(req => {
-      // Verificar si el empleado tiene un curso completado y firmado correspondiente a este requisito
       const hasCompleted = allCourses.some(course => {
         if (course.status !== 'COMPLETED') return false;
         if (course.category !== req.category && course.id !== req.courseId) return false;
@@ -52,11 +69,6 @@ export class TrainingEngine {
     };
   }
 
-  /**
-   * Returns standard mandatory training requirements mapped by job role.
-   * @param {string} role 
-   * @returns {Array<Object>}
-   */
   static getMandatoryRequirementsForRole(role = '') {
     const r = (role || '').toLowerCase();
     const reqs = [];
@@ -100,7 +112,6 @@ export class TrainingEngine {
       });
     }
 
-    // Inducción general para todo puesto
     if (reqs.length === 0) {
       reqs.push({
         id: 'req_induccion_seguridad',

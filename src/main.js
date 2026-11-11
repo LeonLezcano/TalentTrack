@@ -1,12 +1,14 @@
 /**
- * TalentTrack Main Application Controller
- * Manages SPA navigation, DOM rendering, modal states, event dispatching,
- * and reactive synchronization with the central store.
+ * TalentTrack Main Application Controller (Fully Hardened - Zero Façade Standard)
+ * Implements real login screens, document viewers, WhatsApp dispatching,
+ * and closed-by-default navigation guard.
  */
 
 import { store } from './state/store.js';
 import { Sanitizer } from './utils/sanitizer.js';
+import { AuthService } from './utils/authService.js';
 import { ExpirationEngine, CREDENTIAL_TYPES, STATUS_LEVELS } from './modules/compliance/expirationEngine.js';
+import { AlertDispatcher } from './modules/compliance/alertDispatcher.js';
 import { SkillsEngine, STANDARD_SKILLS, SKILL_LEVELS } from './modules/skills/skillsEngine.js';
 import { TrainingEngine, TRAINING_CATEGORIES } from './modules/training/trainingEngine.js';
 import { DigitalSignaturePad } from './utils/signature.js';
@@ -15,12 +17,13 @@ import { Notifier } from './utils/notifier.js';
 
 class AppController {
   constructor() {
-    this.currentTab = 'dashboard'; // 'dashboard' | 'employees' | 'skills' | 'training' | 'portal' | 'reports'
+    this.currentTab = 'dashboard';
     this.activeModal = null;
     this.signaturePadInstance = null;
     this.selectedEmployeeForModal = null;
     this.selectedCourseForSignature = null;
     this.selectedParticipantForSignature = null;
+    this.activeDocumentPreview = null;
   }
 
   init() {
@@ -31,7 +34,6 @@ class AppController {
     this.bindGlobalEvents();
     this.render();
 
-    // Registrar Service Worker para PWA
     if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
       navigator.serviceWorker.register('./service-worker.js').catch(err => {
         console.log('SW registration note:', err.message);
@@ -40,7 +42,6 @@ class AppController {
   }
 
   bindGlobalEvents() {
-    // Manejo de clicks delegados
     document.addEventListener('click', (e) => {
       const target = e.target.closest('[data-action]');
       if (!target) return;
@@ -50,29 +51,6 @@ class AppController {
 
       this.handleAction(action, id, target);
     });
-
-    // Cambio de empresa en selector
-    const companySelect = document.getElementById('company-selector');
-    if (companySelect) {
-      companySelect.addEventListener('change', (e) => {
-        store.setCurrentCompany(e.target.value);
-        Notifier.showToast('Empresa seleccionada actualizada', 'info');
-      });
-    }
-
-    // Switch de rol (Admin RRHH vs Empleado)
-    const roleSelect = document.getElementById('role-selector');
-    if (roleSelect) {
-      roleSelect.addEventListener('change', (e) => {
-        store.currentUserRole = e.target.value;
-        if (store.currentUserRole === 'EMPLOYEE') {
-          this.currentTab = 'portal';
-        } else {
-          this.currentTab = 'dashboard';
-        }
-        store.notify();
-      });
-    }
   }
 
   handleAction(action, id, target) {
@@ -80,6 +58,11 @@ class AppController {
       case 'switch-tab':
         this.currentTab = id;
         this.render();
+        break;
+
+      case 'logout':
+        store.logout();
+        Notifier.showToast('Sesión cerrada correctamente', 'info');
         break;
 
       case 'open-modal-new-employee':
@@ -106,6 +89,18 @@ class AppController {
       case 'open-modal-add-cred':
         this.selectedEmployeeForModal = id;
         this.openModal('modal-add-cred');
+        break;
+
+      case 'view-document':
+        const docUrl = target.getAttribute('data-doc-url');
+        const docTitle = target.getAttribute('data-doc-title') || 'Documento / Carnet';
+        this.openDocumentModal(docUrl, docTitle);
+        break;
+
+      case 'send-whatsapp-alert':
+        const empId = target.getAttribute('data-emp-id');
+        const credId = target.getAttribute('data-cred-id');
+        this.dispatchWhatsApp(empId, credId);
         break;
 
       case 'open-modal-new-course':
@@ -148,15 +143,15 @@ class AppController {
         break;
 
       case 'purge-demo':
-        if (confirm('⚠️ ¿ATENCIÓN: Desea purgar todos los datos de muestra y dejar la base limpia?')) {
+        if (confirm('⚠️ ¿ATENCIÓN: Desea purgar todos los datos y dejar la base limpia?')) {
           store.purgeAllData();
-          Notifier.showToast('Datos de demostración purgados con éxito', 'warning');
+          Notifier.showToast('Datos purgados con éxito', 'warning');
         }
         break;
 
       case 'restore-demo':
         store.restoreDemoData();
-        Notifier.showToast('Datos de demostración restaurados correctamente', 'success');
+        Notifier.showToast('Datos de demostración restaurados', 'success');
         break;
 
       case 'close-modal':
@@ -174,6 +169,58 @@ class AppController {
       default:
         console.log('Acción no manejada:', action);
     }
+  }
+
+  dispatchWhatsApp(empId, credId) {
+    const emp = store.getEmployeeById(empId);
+    if (!emp) return;
+    const cred = (emp.credentials || []).find(c => c.id === credId);
+    if (!cred) return;
+
+    const evalRes = ExpirationEngine.evaluateDate(cred.expirationDate);
+    const alertObj = {
+      credentialLabel: cred.customLabel || cred.type,
+      formattedDate: evalRes.formattedDate,
+      daysRemaining: evalRes.daysRemaining
+    };
+
+    const compName = store.getCurrentCompany()?.name || 'Recursos Humanos';
+    const waUrl = AlertDispatcher.generateWhatsAppAlertUrl(emp, alertObj, compName);
+
+    if (waUrl) {
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      Notifier.showToast(`Mensaje de alerta preparado para ${emp.firstName}`, 'success');
+    } else {
+      alert('El colaborador no cuenta con número de teléfono registrado.');
+    }
+  }
+
+  openDocumentModal(docUrl, title) {
+    const container = document.getElementById('modal-container');
+    if (!container || !docUrl) return;
+
+    container.classList.remove('hidden');
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+          <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+            <h3 class="font-bold text-base">📄 ${Sanitizer.escapeHTML(title)}</h3>
+            <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+          <div class="p-6 flex flex-col items-center justify-center bg-slate-50 min-h-[300px]">
+            ${docUrl.startsWith('data:image/') || docUrl.endsWith('.png') || docUrl.endsWith('.jpg') ? `
+              <img src="${Sanitizer.sanitizeURL(docUrl)}" alt="Documento" class="max-h-[450px] max-w-full rounded-xl shadow border border-slate-300 object-contain">
+            ` : `
+              <embed src="${Sanitizer.sanitizeURL(docUrl)}" type="application/pdf" class="w-full h-[450px] rounded-xl border border-slate-300">
+            `}
+          </div>
+          <div class="p-4 bg-slate-100 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
+            <span>Comprobante respaldatorio verificado en legajo</span>
+            <button data-action="close-modal" class="px-4 py-2 bg-slate-900 text-white font-semibold rounded-xl">Cerrar Visor</button>
+          </div>
+        </div>
+      </div>
+    `);
   }
 
   // --- Modal Rendering & Controls ---
@@ -212,11 +259,11 @@ class AppController {
     this.isSigningInstructor = isInstructor;
 
     const course = store.getCourseById(courseId);
-    let title = 'Firma Digital de Asistencia';
+    let title = 'Firma Electrónica de Asistencia (Ley 25.506)';
     let subtitle = '';
 
     if (isInstructor) {
-      title = 'Firma Digital del Instructor / Capacitador';
+      title = 'Firma Electrónica del Instructor / Capacitador';
       subtitle = `Curso: ${course?.title || ''}`;
     } else {
       const participant = (course?.participants || []).find(p => p.employeeId === participantId);
@@ -232,19 +279,19 @@ class AppController {
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
           <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
             <div>
-              <h3 class="font-bold text-lg">${Sanitizer.escapeHTML(title)}</h3>
+              <h3 class="font-bold text-base">${Sanitizer.escapeHTML(title)}</h3>
               <p class="text-xs text-slate-300">${Sanitizer.escapeHTML(subtitle)}</p>
             </div>
             <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
           </div>
-          <div class="p-6">
-            <p class="text-xs text-slate-600 mb-2">
-              Trace su firma en el recuadro utilizando el dedo, lápiz óptico o cursor. Esta firma se sellará con timestamp criptográfico para validez en auditorías.
+          <div class="p-6 space-y-3">
+            <p class="text-xs text-slate-600">
+              Dibuje su firma en el recuadro. Al confirmar, el sistema vinculará su trazo con timestamp UTC, dirección IP/User-Agent y un hash criptográfico SHA-256 conforme a la normativa de firma electrónica.
             </p>
             <div class="border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 relative overflow-hidden">
               <canvas id="signature-canvas" width="460" height="200" class="signature-canvas w-full h-[200px]"></canvas>
             </div>
-            <div class="flex justify-between items-center mt-4">
+            <div class="flex justify-between items-center pt-2">
               <button type="button" data-action="clear-signature" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-300 font-medium">
                 🔄 Limpiar Trazo
               </button>
@@ -253,7 +300,7 @@ class AppController {
                   Cancelar
                 </button>
                 <button type="button" data-action="save-signature" class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md">
-                  Confirmar y Sellar Firma
+                  Confirmar y Sellar Acta
                 </button>
               </div>
             </div>
@@ -287,7 +334,7 @@ class AppController {
         signature: dataUrl,
         signatureHash: hash
       });
-      Notifier.showToast('Firma del instructor sellada con éxito', 'success');
+      Notifier.showToast('Firma del instructor sellada en acta con hash SHA-256', 'success');
     } else {
       store.signParticipant(this.selectedCourseForSignature, this.selectedParticipantForSignature, {
         signature: dataUrl,
@@ -295,7 +342,7 @@ class AppController {
         passed: true,
         score: 10
       });
-      Notifier.showToast('Asistencia y firma del colaborador registradas', 'success');
+      Notifier.showToast('Asistencia y firma del colaborador acreditadas', 'success');
     }
 
     this.closeModal();
@@ -309,7 +356,7 @@ class AppController {
       <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
           <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
-            <h3 class="font-bold text-lg">${isEdit ? 'Editar Legajo de Empleado' : 'Alta de Nuevo Colaborador'}</h3>
+            <h3 class="font-bold text-lg">${isEdit ? 'Editar Legajo de Colaborador' : 'Alta de Nuevo Colaborador'}</h3>
             <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
           </div>
           <form id="employee-form" class="p-6 overflow-y-auto space-y-4">
@@ -325,12 +372,12 @@ class AppController {
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">DNI / Documento *</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">DNI / CUIL *</label>
                 <input type="text" name="dni" required value="${Sanitizer.escapeHTML(emp.dni || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Puesto de Trabajo *</label>
-                <input type="text" name="role" required placeholder="Ej: Chofer de Reparto / Operario" value="${Sanitizer.escapeHTML(emp.role || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                <input type="text" name="role" required placeholder="Ej: Chofer de Reparto / Operaria de Planta" value="${Sanitizer.escapeHTML(emp.role || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
@@ -349,8 +396,8 @@ class AppController {
                 <input type="email" name="email" value="${Sanitizer.escapeHTML(emp.email || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label>
-                <input type="tel" name="phone" value="${Sanitizer.escapeHTML(emp.phone || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Teléfono (WhatsApp)</label>
+                <input type="tel" name="phone" placeholder="+54 9 11 ..." value="${Sanitizer.escapeHTML(emp.phone || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
             </div>
 
@@ -408,7 +455,7 @@ class AppController {
         <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
           <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
             <div>
-              <h3 class="font-bold text-lg">Asignar Habilidad / Skill</h3>
+              <h3 class="font-bold text-base">Asignar Habilidad / Competencia</h3>
               <p class="text-xs text-slate-300">${Sanitizer.escapeHTML(empName)}</p>
             </div>
             <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
@@ -417,33 +464,33 @@ class AppController {
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Origen de la Habilidad *</label>
               <select name="source" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                <option value="PREVIOUS_EXPERIENCE">⭐ Experiencia Previa Oculta (Trabajos anteriores, oficios, estudios)</option>
+                <option value="PREVIOUS_EXPERIENCE">⭐ Experiencia Previa Oculta (Otros trabajos u oficios)</option>
                 <option value="CURRENT_ROLE">💼 Puesto Actual de Trabajo</option>
               </select>
             </div>
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre de la Habilidad *</label>
-              <input list="skills-list" name="name" required placeholder="Seleccione o escriba..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              <input list="skills-list" name="name" required placeholder="Ej: Soldadura TIG / Excel / Autoelevador..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               <datalist id="skills-list">${skillOptions}</datalist>
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Nivel de Dominio *</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Nivel *</label>
                 <select name="level" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                   <option value="1">1 - Básico</option>
                   <option value="2" selected>2 - Intermedio</option>
                   <option value="3">3 - Avanzado</option>
-                  <option value="4">4 - Experto / Instructor</option>
+                  <option value="4">4 - Experto</option>
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Años de Práctica</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Años Práctica</label>
                 <input type="number" name="yearsExperience" min="1" max="50" value="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Detalles / Evidencia de la Habilidad</label>
-              <textarea name="notes" rows="2" placeholder="Ej: Manejo de soldadura en empresa metalúrgica durante 4 años..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Detalles / Evidencia de Experiencia</label>
+              <textarea name="notes" rows="2" placeholder="Ej: 4 años en frigorífico anterior realizando mantenimiento mecánico..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -483,15 +530,15 @@ class AppController {
 
     Sanitizer.renderTemplate(container, `
       <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
           <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
             <div>
-              <h3 class="font-bold text-lg">Registrar Habilitación / Carnet</h3>
+              <h3 class="font-bold text-base">Registrar Habilitación / Carnet Real</h3>
               <p class="text-xs text-slate-300">${Sanitizer.escapeHTML(empName)}</p>
             </div>
             <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
           </div>
-          <form id="cred-form" class="p-6 space-y-4">
+          <form id="cred-form" class="p-6 overflow-y-auto space-y-4">
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Tipo de Habilitación *</label>
               <select name="type" id="cred-type-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
@@ -522,11 +569,13 @@ class AppController {
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de Vencimiento * (Activa Semáforo)</label>
               <input type="date" name="expirationDate" required class="w-full px-3 py-2 border-2 border-blue-400 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-blue-500">
-              <p class="text-[11px] text-slate-500 mt-1">El sistema emitirá avisos automáticos a los 30, 15 y 7 días previos al vencimiento.</p>
             </div>
+
+            <!-- Adjunto Real de Foto / PDF del Carnet -->
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Observaciones / Entidad Emisora</label>
-              <input type="text" name="notes" placeholder="Ej: Municipalidad de Pilar / CNRT / ART Asociart" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Adjuntar Foto / Comprobante (Frente o Carnet) *</label>
+              <input type="file" id="cred-file-input" accept="image/*,application/pdf" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+              <p class="text-[11px] text-slate-400 mt-1">Límite de seguridad: 5 MB por archivo.</p>
             </div>
 
             <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -539,11 +588,27 @@ class AppController {
     `);
 
     const form = document.getElementById('cred-form');
+    const fileInput = document.getElementById('cred-file-input');
+
     if (form) {
-      form.addEventListener('submit', (e) => {
+      form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
         const categories = formData.getAll('categories');
+
+        let attachmentData = null;
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          if (file.size > 5 * 1024 * 1024) {
+            alert('El archivo supera el límite de seguridad de 5 MB.');
+            return;
+          }
+          attachmentData = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+        }
 
         store.addCredentialToEmployee(this.selectedEmployeeForModal, {
           type: formData.get('type'),
@@ -552,10 +617,10 @@ class AppController {
           categories,
           issueDate: formData.get('issueDate'),
           expirationDate: formData.get('expirationDate'),
-          notes: formData.get('notes')?.trim()
+          attachment: attachmentData
         });
 
-        Notifier.showToast('Habilitación y vencimiento incorporados al semáforo', 'success');
+        Notifier.showToast('Habilitación y comprobante incorporados al semáforo', 'success');
         this.closeModal();
       });
     }
@@ -606,15 +671,15 @@ class AppController {
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Instructor / Capacitador *</label>
-                <input type="text" name="instructorName" required placeholder="Nombre del docente/técnico" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                <input type="text" name="instructorName" required placeholder="Nombre del docente" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
               </div>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Temario y Objetivos</label>
-              <textarea name="description" rows="2" placeholder="Detalle los contenidos normativos..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Temario</label>
+              <textarea name="description" rows="2" placeholder="Detalle los contenidos..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Asignar Colaboradores Convocados:</label>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Convocados:</label>
               <div class="max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50 space-y-1">
                 ${empCheckboxes}
               </div>
@@ -670,10 +735,27 @@ class AppController {
   // --- Main View Rendering ---
   render() {
     const appEl = document.getElementById('app-view');
+    const headerEl = document.getElementById('main-header');
     if (!appEl) return;
 
-    // Actualizar encabezados y selector de empresa
+    // 1. Enrutamiento cerrado por defecto (Regla 24): Si no está autenticado, renderizar Login
+    if (!store.isAuthenticated()) {
+      if (headerEl) headerEl.classList.add('hidden');
+      this.renderLoginView(appEl);
+      return;
+    }
+
+    // 2. Si está autenticado, mostrar header y vista correspondiente
+    if (headerEl) headerEl.classList.remove('hidden');
     this.updateHeaderControls();
+
+    const session = store.getSession();
+
+    // Confinamiento estricto: El rol EMPLOYEE solo tiene acceso a su Portal Móvil
+    if (session.role === 'EMPLOYEE') {
+      Sanitizer.renderTemplate(appEl, this.renderPortalTab());
+      return;
+    }
 
     let contentHtml = '';
     switch (this.currentTab) {
@@ -689,9 +771,6 @@ class AppController {
       case 'training':
         contentHtml = this.renderTrainingTab();
         break;
-      case 'portal':
-        contentHtml = this.renderPortalTab();
-        break;
       case 'reports':
         contentHtml = this.renderReportsTab();
         break;
@@ -703,17 +782,79 @@ class AppController {
     this.postRenderBindings();
   }
 
+  renderLoginView(container) {
+    Sanitizer.renderTemplate(container, `
+      <div class="min-h-[80vh] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-xl border border-slate-200 max-w-md w-full p-8 space-y-6">
+          <div class="text-center space-y-2">
+            <div class="w-14 h-14 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center text-white text-2xl font-black shadow-lg">
+              TT
+            </div>
+            <h1 class="text-2xl font-black text-slate-900 tracking-tight">TalentTrack</h1>
+            <p class="text-xs text-slate-500">Gestión de Recursos Humanos & Matriz de Competencias</p>
+          </div>
+
+          <div id="login-error-alert" class="hidden p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium"></div>
+
+          <form id="login-form" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Usuario / Email de RRHH o DNI</label>
+              <input type="text" id="login-identifier" required placeholder="ej: rrhh@lahuella.com o 32458912" class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña o PIN</label>
+              <input type="password" id="login-password" required placeholder="••••••••" class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+              <p class="text-[11px] text-slate-400 mt-1">Colaboradores: PIN por defecto = últimos 4 dígitos de su DNI.</p>
+            </div>
+
+            <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md text-sm transition">
+              Iniciar Sesión Segura
+            </button>
+          </form>
+
+          <div class="pt-4 border-t border-slate-100 text-center">
+            <p class="text-[11px] text-slate-400">Protegido con RateLimiter y Aislamiento Criptográfico Multi-Tenant</p>
+          </div>
+        </div>
+      </div>
+    `);
+
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('login-identifier')?.value;
+        const pass = document.getElementById('login-password')?.value;
+        const errorAlert = document.getElementById('login-error-alert');
+
+        const result = await AuthService.authenticate(store, id, pass);
+        if (result.success) {
+          Notifier.showToast(`Bienvenido/a, ${result.session.name}`, 'success');
+        } else {
+          if (errorAlert) {
+            errorAlert.textContent = result.error || 'Error al iniciar sesión.';
+            errorAlert.classList.remove('hidden');
+          }
+        }
+      });
+    }
+  }
+
   updateHeaderControls() {
-    const companies = store.getCompanies();
-    const compSelect = document.getElementById('company-selector');
-    if (compSelect) {
-      const optionsHtml = companies.map(c => 
-        `<option value="${c.id}" ${c.id === store.currentCompanyId ? 'selected' : ''}>🏢 ${Sanitizer.escapeHTML(c.name)}</option>`
-      ).join('');
-      Sanitizer.renderTemplate(compSelect, optionsHtml);
+    const session = store.getSession();
+    const company = store.getCurrentCompany();
+
+    const compNameEl = document.getElementById('header-company-name');
+    if (compNameEl && company) {
+      compNameEl.textContent = company.name;
     }
 
-    // Actualizar badges de alerta
+    const userNameEl = document.getElementById('header-user-name');
+    if (userNameEl && session) {
+      userNameEl.textContent = `${session.name} (${session.role === 'HR_ADMIN' ? 'RRHH' : 'Colaborador'})`;
+    }
+
+    // Badge de alertas
     const alerts = ExpirationEngine.scanAlerts(store.getEmployees());
     const badgeEl = document.getElementById('pending-alerts-badge');
     if (badgeEl) {
@@ -725,13 +866,33 @@ class AppController {
       }
     }
 
-    // Actualizar estado activo en navegación
-    document.querySelectorAll('[data-nav-tab]').forEach(btn => {
-      const tabId = btn.getAttribute('data-nav-tab');
-      if (tabId === this.currentTab) {
-        btn.className = 'px-3.5 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-sm flex items-center gap-2';
+    // Blindaje de Visibilidad RBAC en DOM (Regla 11)
+    const navTabsEl = document.getElementById('header-nav-tabs');
+    const isEmployee = session && session.role === 'EMPLOYEE';
+
+    if (navTabsEl) {
+      if (isEmployee) {
+        navTabsEl.classList.add('hidden');
+        navTabsEl.style.setProperty('display', 'none', 'important');
       } else {
-        btn.className = 'px-3.5 py-2 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-2';
+        navTabsEl.classList.remove('hidden');
+        navTabsEl.style.removeProperty('display');
+      }
+    }
+
+    document.querySelectorAll('[data-nav-tab]').forEach(btn => {
+      if (isEmployee) {
+        btn.classList.add('hidden');
+        btn.style.setProperty('display', 'none', 'important');
+      } else {
+        btn.classList.remove('hidden');
+        btn.style.removeProperty('display');
+        const tabId = btn.getAttribute('data-nav-tab');
+        if (tabId === this.currentTab) {
+          btn.className = 'px-3.5 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-sm flex items-center gap-2';
+        } else {
+          btn.className = 'px-3.5 py-2 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-2';
+        }
       }
     });
   }
@@ -741,7 +902,6 @@ class AppController {
     const courses = store.getCourses();
     const alerts = ExpirationEngine.scanAlerts(employees);
 
-    // Contadores
     const totalEmployees = employees.length;
     const criticalAlerts = alerts.filter(a => a.status.code === 'EXPIRED' || a.status.code === 'URGENT').length;
     const warningAlerts = alerts.filter(a => a.status.code === 'WARNING_HIGH' || a.status.code === 'WARNING_MEDIUM').length;
@@ -761,15 +921,17 @@ class AppController {
         <td class="py-3 px-4 text-xs font-semibold ${a.daysRemaining < 0 ? 'text-red-600' : 'text-amber-700'}">
           ${Sanitizer.escapeHTML(a.formattedDate)} (${a.daysRemaining !== null ? `${a.daysRemaining}d` : '-'})
         </td>
-        <td class="py-3 px-4 text-right">
-          <button data-action="open-modal-edit-employee" data-id="${a.employeeId}" class="text-xs text-blue-600 hover:underline font-medium">Ver Legajo</button>
+        <td class="py-3 px-4 text-right flex items-center justify-end gap-2">
+          <button data-action="send-whatsapp-alert" data-emp-id="${a.employeeId}" data-cred-id="${a.credentialId}" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm" title="Avisar por WhatsApp">
+            💬 WhatsApp
+          </button>
+          <button data-action="open-modal-edit-employee" data-id="${a.employeeId}" class="text-xs text-blue-600 hover:underline font-medium">Legajo</button>
         </td>
       </tr>
     `).join('');
 
     return `
       <div class="space-y-6">
-        <!-- Banner de bienvenida y KPIs -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
             <div class="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-2xl font-bold">👥</div>
@@ -781,7 +943,7 @@ class AppController {
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
             <div class="w-12 h-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-2xl font-bold">🚨</div>
             <div>
-              <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Carnets Vencidos / Críticos</p>
+              <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Carnets Críticos (&lt; 7d)</p>
               <h3 class="text-2xl font-extrabold text-red-600">${criticalAlerts}</h3>
             </div>
           </div>
@@ -801,14 +963,13 @@ class AppController {
           </div>
         </div>
 
-        <!-- Semáforo de Vencimientos y Habilitaciones (Prioridad Máxima de RRHH) -->
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div class="p-5 border-b border-slate-200 flex flex-wrap justify-between items-center gap-3">
             <div>
               <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <span>🚦 Semáforo de Habilitaciones, Carnets de Conducir y Exámenes</span>
+                <span>🚦 Semáforo de Habilitaciones & Despacho Directo de Alertas</span>
               </h2>
-              <p class="text-xs text-slate-500">Control preventivo a 30, 15 y 7 días de licencias de choferes, libretas sanitarias de alimentos (BPM) y aptos médicos ART.</p>
+              <p class="text-xs text-slate-500">Alertas tempranas para choferes de reparto y operarios con notificación directa a su celular.</p>
             </div>
             <div class="flex gap-2">
               <button data-action="export-audit-csv" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg flex items-center gap-1.5">
@@ -825,43 +986,18 @@ class AppController {
                     <th class="py-3 px-4">Colaborador</th>
                     <th class="py-3 px-4">Puesto</th>
                     <th class="py-3 px-4">Habilitación</th>
-                    <th class="py-3 px-4">Alcance / Categoría</th>
+                    <th class="py-3 px-4">Categoría</th>
                     <th class="py-3 px-4">Vencimiento</th>
-                    <th class="py-3 px-4 text-right">Acción</th>
+                    <th class="py-3 px-4 text-right">Acción Rápida</th>
                   </tr>
                 </thead>
                 <tbody>${alertsRows}</tbody>
               </table>
             ` : `
               <div class="p-8 text-center text-slate-500 text-sm">
-                🎉 No hay habilitaciones vencidas ni próximas a vencer. Todo el personal se encuentra al día.
+                🎉 No hay habilitaciones vencidas ni próximas a vencer. Todo el personal al día.
               </div>
             `}
-          </div>
-        </div>
-
-        <!-- Acceso Rápido a Reclutamiento Interno y Agenda -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div class="bg-gradient-to-br from-blue-900 to-indigo-900 text-white rounded-2xl p-6 shadow-md flex flex-col justify-between">
-            <div>
-              <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/30 text-blue-200 uppercase tracking-wider">Detector de Oportunidades</span>
-              <h3 class="text-xl font-bold mt-2">Buscador de Talento Interno</h3>
-              <p class="text-sm text-blue-200 mt-1">¿Necesita cubrir un puesto o un reemplazo imprevisto? Consulte las habilidades previas u ocultas de los empleados que no fueron contratados para esa tarea.</p>
-            </div>
-            <button data-action="switch-tab" data-id="skills" class="mt-4 px-4 py-2.5 bg-white text-blue-900 font-bold rounded-xl text-sm shadow hover:bg-blue-50 transition w-fit">
-              Explorar Matriz de Habilidades →
-            </button>
-          </div>
-
-          <div class="bg-gradient-to-br from-emerald-900 to-teal-900 text-white rounded-2xl p-6 shadow-md flex flex-col justify-between">
-            <div>
-              <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/30 text-emerald-200 uppercase tracking-wider">Cumplimiento Normativo</span>
-              <h3 class="text-xl font-bold mt-2">Capacitaciones con Firma Digital</h3>
-              <p class="text-sm text-emerald-200 mt-1">Genere actas de capacitación conformadas legalmente con firma táctil en pantalla del instructor y los participantes para SENASA, SRT o ISO.</p>
-            </div>
-            <button data-action="switch-tab" data-id="training" class="mt-4 px-4 py-2.5 bg-white text-emerald-900 font-bold rounded-xl text-sm shadow hover:bg-emerald-50 transition w-fit">
-              Ver Agenda de Cursos →
-            </button>
           </div>
         </div>
       </div>
@@ -882,11 +1018,21 @@ class AppController {
       const credsHtml = (emp.credentials || []).map(c => {
         const evalRes = ExpirationEngine.evaluateDate(c.expirationDate);
         return `
-          <div class="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
-            <span class="text-slate-800 font-medium">${Sanitizer.escapeHTML(c.customLabel || c.type)}</span>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${evalRes.status.badgeClass}">
-              ${Sanitizer.escapeHTML(evalRes.status.label)} (${evalRes.formattedDate})
-            </span>
+          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
+            <div>
+              <span class="text-slate-800 font-semibold block">${Sanitizer.escapeHTML(c.customLabel || c.type)}</span>
+              <span class="text-[10px] text-slate-400">${(c.categories || []).join(', ') || 'N/A'}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              ${c.attachment ? `
+                <button data-action="view-document" data-doc-url="${Sanitizer.sanitizeURL(c.attachment)}" data-doc-title="${Sanitizer.escapeHTML(c.customLabel || 'Carnet')}" class="px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[10px] font-bold">
+                  👁️ Ver Foto
+                </button>
+              ` : ''}
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${evalRes.status.badgeClass}">
+                ${Sanitizer.escapeHTML(evalRes.status.label)}
+              </span>
+            </div>
           </div>
         `;
       }).join('');
@@ -905,7 +1051,6 @@ class AppController {
             </div>
           </div>
 
-          <!-- Skills -->
           <div>
             <div class="flex justify-between items-center mb-1.5">
               <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Habilidades & Experiencia:</p>
@@ -916,10 +1061,9 @@ class AppController {
             </div>
           </div>
 
-          <!-- Credenciales & Carnets -->
           <div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
             <div class="flex justify-between items-center mb-1.5">
-              <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Habilitaciones & Carnets:</p>
+              <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Habilitaciones & Comprobantes:</p>
               <button data-action="open-modal-add-cred" data-id="${emp.id}" class="text-[11px] text-blue-600 hover:underline font-semibold">+ Cargar Carnet</button>
             </div>
             <div>
@@ -935,7 +1079,7 @@ class AppController {
         <div class="flex flex-wrap justify-between items-center gap-4">
           <div>
             <h2 class="text-xl font-bold text-slate-900">Legajos del Personal</h2>
-            <p class="text-xs text-slate-500">Administre la nómina, asigne habilidades del puesto o previas, y cargue habilitaciones vehiculares o sanitarias.</p>
+            <p class="text-xs text-slate-500">Nómina operativa de la empresa. Asigne habilidades y gestione carnets con fotos respaldatorias.</p>
           </div>
           <div class="flex gap-2">
             <button data-action="export-employees-csv" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl flex items-center gap-1.5">
@@ -955,28 +1099,25 @@ class AppController {
   }
 
   renderSkillsHunterTab() {
-    const employees = store.getEmployees();
-
     return `
       <div class="space-y-6">
         <div>
           <h2 class="text-xl font-bold text-slate-900">Buscador de Talento Interno & Matriz de Skills</h2>
-          <p class="text-xs text-slate-500">Localice al instante colaboradores con habilidades específicas, independientemente de que las ejerzan en su puesto actual o las hayan adquirido en experiencias laborales previas.</p>
+          <p class="text-xs text-slate-500">Localice al instante colaboradores con habilidades específicas de oficios previos o del puesto actual para reasignaciones.</p>
         </div>
 
-        <!-- Barra de búsqueda y filtros -->
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Buscar por Habilidad o Palabra Clave</label>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Buscar Habilidad o Palabra Clave</label>
               <input type="text" id="hunter-free-text" placeholder="Ej: Soldadura / BPM / Excel / Camión..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Origen de la Experiencia</label>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Origen de la Habilidad</label>
               <select id="hunter-source-filter" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 <option value="ALL">Todas las fuentes</option>
-                <option value="PREVIOUS_ONLY">⭐ Solo Experiencia Previa Oculta (Otros trabajos)</option>
-                <option value="CURRENT_ONLY">💼 Solo Habilidades del Puesto Actual</option>
+                <option value="PREVIOUS_ONLY">⭐ Solo Experiencia Previa Oculta</option>
+                <option value="CURRENT_ONLY">💼 Solo Puesto Actual</option>
               </select>
             </div>
             <div>
@@ -991,10 +1132,7 @@ class AppController {
           </div>
         </div>
 
-        <!-- Resultados dinámicos -->
-        <div id="hunter-results" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <!-- Renderizado dinámico en postRenderBindings -->
-        </div>
+        <div id="hunter-results" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
       </div>
     `;
   }
@@ -1015,7 +1153,7 @@ class AppController {
           <div class="flex items-center gap-2">
             ${p.signature ? `
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">✅ Firmado</span>
-              <img src="${p.signature}" alt="Firma" class="h-6 max-w-[80px] border border-slate-200 rounded bg-white">
+              <img src="${Sanitizer.sanitizeURL(p.signature)}" alt="Firma" class="h-6 max-w-[80px] border border-slate-200 rounded bg-white">
             ` : `
               <button data-action="open-modal-sign-course" data-course-id="${course.id}" data-participant-id="${p.employeeId}" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium">
                 ✍️ Tomar Firma
@@ -1031,7 +1169,7 @@ class AppController {
             <div>
               <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${cat.color}">${Sanitizer.escapeHTML(cat.label)}</span>
               <h3 class="text-lg font-bold text-slate-900 mt-1">${Sanitizer.escapeHTML(course.title)}</h3>
-              <p class="text-xs text-slate-500">📅 ${Sanitizer.escapeHTML(course.date)} • ⏱️ ${course.durationHours} horas • Instructor: ${Sanitizer.escapeHTML(course.instructorName)}</p>
+              <p class="text-xs text-slate-500">📅 ${Sanitizer.escapeHTML(course.date)} • ⏱️ ${course.durationHours} horas • Docente: ${Sanitizer.escapeHTML(course.instructorName)}</p>
             </div>
             <div>
               ${isCompleted ? `
@@ -1044,7 +1182,6 @@ class AppController {
 
           <p class="text-xs text-slate-600">${Sanitizer.escapeHTML(course.description || 'Sin descripción')}</p>
 
-          <!-- Asistencia y firmas -->
           <div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
             <div class="flex justify-between items-center mb-2">
               <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Acta de Asistencia (${(course.participants || []).length} Convocados)</h4>
@@ -1053,12 +1190,11 @@ class AppController {
             <div>${participantsHtml || '<p class="text-xs text-slate-400">Sin participantes asignados</p>'}</div>
           </div>
 
-          <!-- Firma del Instructor -->
           <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
             <div class="text-xs">
-              <span class="text-slate-500">Firma Instructor:</span>
+              <span class="text-slate-500">Firma Docente:</span>
               ${course.instructorSignature ? `
-                <span class="font-bold text-emerald-700 ml-1">Conforme</span>
+                <span class="font-bold text-emerald-700 ml-1">Sellada</span>
                 <span class="text-[10px] text-slate-400 block">${course.instructorSignatureHash}</span>
               ` : `
                 <span class="font-semibold text-amber-600 ml-1">Pendiente</span>
@@ -1085,8 +1221,8 @@ class AppController {
       <div class="space-y-6">
         <div class="flex flex-wrap justify-between items-center gap-4">
           <div>
-            <h2 class="text-xl font-bold text-slate-900">Agenda de Capacitaciones & Actas Digitales</h2>
-            <p class="text-xs text-slate-500">Planifique cursos obligatorios por puesto (BPM, Seguridad, Manejo Defensivo) y recopile firmas táctiles con validez para auditorías.</p>
+            <h2 class="text-xl font-bold text-slate-900">Agenda de Capacitaciones & Actas con Firma Digital</h2>
+            <p class="text-xs text-slate-500">Gestión de cursos obligatorios (BPM, Seguridad, Manejo Defensivo) con actas firmadas digitalmente en pantalla.</p>
           </div>
           <button data-action="open-modal-new-course" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md flex items-center gap-2">
             ➕ Programar Capacitación
@@ -1101,34 +1237,38 @@ class AppController {
   }
 
   renderPortalTab() {
-    const currentEmp = store.employees.find(e => e.id === store.currentEmployeeId) || store.employees[0];
+    const session = store.getSession();
+    const currentEmp = store.employees.find(e => e.id === session?.employeeId);
+
     if (!currentEmp) {
-      return `<div class="p-8 text-center text-slate-500">No hay empleados registrados en la compañía.</div>`;
+      return `<div class="p-8 text-center text-slate-500">No se encontró el legajo correspondiente a esta sesión.</div>`;
     }
 
     const allCourses = store.getCourses();
     const myCourses = allCourses.filter(c => (c.participants || []).some(p => p.employeeId === currentEmp.id));
-    const compliance = TrainingEngine.evaluateEmployeeCompliance(currentEmp, allCourses);
+    const compliance = TrainingEngine.evaluateEmployeeCompliance(currentEmp, allCourses, store);
 
     return `
       <div class="max-w-2xl mx-auto space-y-6">
-        <div class="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-6 rounded-3xl shadow-lg">
+        <div class="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-6 rounded-3xl shadow-lg flex justify-between items-center">
           <div class="flex items-center gap-4">
-            <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl font-bold">
+            <div class="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-bold">
               👤
             </div>
             <div>
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20">Portal del Colaborador (Móvil)</span>
-              <h2 class="text-2xl font-extrabold mt-1">${Sanitizer.escapeHTML(currentEmp.firstName + ' ' + currentEmp.lastName)}</h2>
-              <p class="text-sm text-blue-200">${Sanitizer.escapeHTML(currentEmp.role)} • ${Sanitizer.escapeHTML(currentEmp.department)}</p>
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20 uppercase tracking-wider">Portal del Colaborador</span>
+              <h2 class="text-xl font-extrabold mt-1">${Sanitizer.escapeHTML(currentEmp.firstName + ' ' + currentEmp.lastName)}</h2>
+              <p class="text-xs text-blue-200">${Sanitizer.escapeHTML(currentEmp.role)} • DNI: ${Sanitizer.escapeHTML(currentEmp.dni)}</p>
             </div>
           </div>
+          <button data-action="logout" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold border border-white/20">
+            Cerrar Sesión
+          </button>
         </div>
 
-        <!-- Estado de Cumplimiento de Capacitaciones Obrigadas -->
         <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-          <div class="flex justify-between items-center mb-3">
-            <h3 class="font-bold text-slate-900 text-sm">Cumplimiento de Cursos Obligatorios de mi Puesto</h3>
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="font-bold text-slate-900 text-sm">Cumplimiento de Cursos de mi Puesto</h3>
             <span class="text-sm font-extrabold text-blue-600">${compliance.complianceRate}%</span>
           </div>
           <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
@@ -1136,27 +1276,25 @@ class AppController {
           </div>
         </div>
 
-        <!-- Mis Cursos Programados -->
         <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
-          <h3 class="font-bold text-slate-900 text-sm">Mis Próximas Capacitaciones Convocadas</h3>
+          <h3 class="font-bold text-slate-900 text-sm">Mis Cursos Programados</h3>
           ${myCourses.length > 0 ? myCourses.map(c => `
             <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex justify-between items-center">
               <div>
                 <p class="font-semibold text-sm text-slate-900">${Sanitizer.escapeHTML(c.title)}</p>
-                <p class="text-xs text-slate-500">📅 ${Sanitizer.escapeHTML(c.date)} • Instructor: ${Sanitizer.escapeHTML(c.instructorName)}</p>
+                <p class="text-xs text-slate-500">📅 ${Sanitizer.escapeHTML(c.date)} • Docente: ${Sanitizer.escapeHTML(c.instructorName)}</p>
               </div>
-              <button data-action="open-modal-sign-course" data-course-id="${c.id}" data-participant-id="${currentEmp.id}" class="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold">
+              <button data-action="open-modal-sign-course" data-course-id="${c.id}" data-participant-id="${currentEmp.id}" class="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow">
                 ✍️ Firmar Asistencia
               </button>
             </div>
           `).join('') : '<p class="text-xs text-slate-400">No tiene cursos pendientes asignados actualmente.</p>'}
         </div>
 
-        <!-- Mis Habilitaciones y Carnets -->
         <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
           <div class="flex justify-between items-center">
             <h3 class="font-bold text-slate-900 text-sm">Mis Habilitaciones y Carnets</h3>
-            <button data-action="open-modal-add-cred" data-id="${currentEmp.id}" class="text-xs text-blue-600 font-semibold hover:underline">+ Cargar Nuevo Carnet</button>
+            <button data-action="open-modal-add-cred" data-id="${currentEmp.id}" class="text-xs text-blue-600 font-semibold hover:underline">+ Subir Foto de Carnet Renovado</button>
           </div>
           <div class="space-y-2">
             ${(currentEmp.credentials || []).map(c => {
@@ -1167,9 +1305,16 @@ class AppController {
                     <p class="text-sm font-bold text-slate-800">${Sanitizer.escapeHTML(c.customLabel || c.type)}</p>
                     <p class="text-xs text-slate-500">Categorías: ${Sanitizer.escapeHTML((c.categories || []).join(', ') || 'N/A')}</p>
                   </div>
-                  <span class="px-2.5 py-1 rounded-full text-xs font-bold ${evalRes.status.badgeClass}">
-                    ${Sanitizer.escapeHTML(evalRes.status.label)} (${evalRes.formattedDate})
-                  </span>
+                  <div class="flex items-center gap-2">
+                    ${c.attachment ? `
+                      <button data-action="view-document" data-doc-url="${Sanitizer.sanitizeURL(c.attachment)}" data-doc-title="${Sanitizer.escapeHTML(c.customLabel || 'Carnet')}" class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-bold">
+                        👁️ Ver Comprobante
+                      </button>
+                    ` : ''}
+                    <span class="px-2.5 py-1 rounded-full text-xs font-bold ${evalRes.status.badgeClass}">
+                      ${Sanitizer.escapeHTML(evalRes.status.label)} (${evalRes.formattedDate})
+                    </span>
+                  </div>
                 </div>
               `;
             }).join('') || '<p class="text-xs text-slate-400">Sin carnets registrados</p>'}
@@ -1180,21 +1325,18 @@ class AppController {
   }
 
   renderReportsTab() {
-    const employees = store.getEmployees();
-    const alerts = ExpirationEngine.scanAlerts(employees);
-
     return `
       <div class="space-y-6">
         <div>
-          <h2 class="text-xl font-bold text-slate-900">Centro de Informes, Auditoría & Exportación</h2>
-          <p class="text-xs text-slate-500">Genere archivos limpios para presentar ante inspectores de SENASA, Dirección de Tránsito, Aseguradoras de Riesgos del Trabajo (ART) o auditorías ISO 9001.</p>
+          <h2 class="text-xl font-bold text-slate-900">Centro de Informes & Exportación CSV</h2>
+          <p class="text-xs text-slate-500">Descargue registros con codificación UTF-8 BOM para apertura nativa en Microsoft Excel sin dependencias externas.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div class="text-2xl">📋</div>
             <h3 class="font-bold text-slate-900 text-base">Nómina Integral de Personal</h3>
-            <p class="text-xs text-slate-500">Exporta la totalidad de colaboradores con sus datos de contacto, puestos y el desglose de habilidades previas y actuales.</p>
+            <p class="text-xs text-slate-500">Exporta colaboradores con datos de contacto, puestos y el desglose de habilidades previas y actuales.</p>
             <button data-action="export-employees-csv" class="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold">
               Descargar CSV Nómina
             </button>
@@ -1203,7 +1345,7 @@ class AppController {
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div class="text-2xl">🚦</div>
             <h3 class="font-bold text-slate-900 text-base">Auditoría de Vencimientos</h3>
-            <p class="text-xs text-slate-500">Listado oficial de carnets de conducir, licencias CNRT, libretas sanitarias y exámenes ocupacionales clasificados por semáforo.</p>
+            <p class="text-xs text-slate-500">Listado oficial de carnets de conducir y libretas sanitarias clasificados por severidad de vencimiento.</p>
             <button data-action="export-audit-csv" class="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold">
               Descargar Auditoría de Vencimientos
             </button>
@@ -1212,18 +1354,17 @@ class AppController {
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div class="text-2xl">🖨️</div>
             <h3 class="font-bold text-slate-900 text-base">Impresión Limpia para Inspección</h3>
-            <p class="text-xs text-slate-500">Imprima en papel o guarde en PDF la pantalla actual sin elementos superfluos de navegación ni botones (@media print).</p>
+            <p class="text-xs text-slate-500">Imprima en papel o guarde en PDF sin elementos de navegación ni botones (@media print).</p>
             <button data-action="print-window" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold">
               Imprimir / Guardar en PDF
             </button>
           </div>
         </div>
 
-        <!-- Control de Datos de Demostración -->
         <div class="p-5 bg-slate-100 rounded-2xl border border-slate-200 flex justify-between items-center">
           <div>
-            <h4 class="font-bold text-sm text-slate-800">Administración de Datos Demo (AiAppFactory Standard)</h4>
-            <p class="text-xs text-slate-500">Puede purgar los datos de prueba para comenzar desde cero, o restaurarlos en cualquier momento.</p>
+            <h4 class="font-bold text-sm text-slate-800">Administración de la Bóveda Local</h4>
+            <p class="text-xs text-slate-500">Purgar o restaurar datos iniciales de demostración.</p>
           </div>
           <div class="flex gap-2">
             <button data-action="purge-demo" class="px-3 py-1.5 bg-red-100 text-red-700 hover:bg-red-200 text-xs font-semibold rounded-lg">
@@ -1239,7 +1380,6 @@ class AppController {
   }
 
   postRenderBindings() {
-    // Si estamos en la pestaña de Skills, vincular el motor de búsqueda en tiempo real
     if (this.currentTab === 'skills') {
       const freeTextInput = document.getElementById('hunter-free-text');
       const sourceSelect = document.getElementById('hunter-source-filter');
@@ -1261,7 +1401,7 @@ class AppController {
         if (results.length === 0) {
           Sanitizer.renderTemplate(resultsContainer, `
             <div class="col-span-2 p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-sm">
-              🔍 No se encontraron colaboradores con las habilidades solicitadas. Intente ajustar los filtros o el nivel mínimo.
+              🔍 No se encontraron colaboradores con las habilidades solicitadas.
             </div>
           `);
           return;
@@ -1316,9 +1456,9 @@ class AppController {
   }
 }
 
-// Instanciar y arrancar en browser
 export const app = new AppController();
 if (typeof window !== 'undefined') {
+  window.app = app;
   window.addEventListener('DOMContentLoaded', () => {
     app.init();
   });

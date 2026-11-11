@@ -46,4 +46,12 @@ if (fs.existsSync(swPath)) {
   fs.writeFileSync(swPath, swContent);
 }
 
+// Actualizar version en index.html si existe
+const indexPath = path.join(projectRoot, 'index.html');
+if (fs.existsSync(indexPath)) {
+  let indexContent = fs.readFileSync(indexPath, 'utf-8');
+  indexContent = indexContent.replace(/v\d+\.\d+\.\d{2}/g, `v${nextVersion}`);
+  fs.writeFileSync(indexPath, indexContent);
+}
+
 console.log(`🚀 Version bumped successfully: v${currentVersion} -> v${nextVersion}`);

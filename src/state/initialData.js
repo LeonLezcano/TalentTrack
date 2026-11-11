@@ -1,6 +1,5 @@
 /**
- * TalentTrack Realistic Demo Seed Data
- * Designed for immediate evaluation of Multi-Empresa, Skills Matrix, Training LMS and Expiration Traffic Lights.
+ * TalentTrack Realistic Demo Seed Data (Updated with real password hashes & multi-tenant users)
  */
 
 export const INITIAL_COMPANIES = [
@@ -10,7 +9,24 @@ export const INITIAL_COMPANIES = [
     cuit: '30-71458923-4',
     industry: 'Alimentos & Bebidas',
     location: 'Parque Industrial Pilar, Buenos Aires',
-    employeesCount: 3
+    // Matriz de Requisitos Obligatorios por Puesto 100% Configurable
+    positionRequirements: [
+      {
+        role: 'Chofer de Reparto Pesado',
+        mandatoryCredentials: ['DRIVER_LICENSE'],
+        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+      },
+      {
+        role: 'Operaria de Elaboración & Envasado',
+        mandatoryCredentials: ['FOOD_HANDLER_BPM'],
+        mandatoryTrainings: ['ALIMENTOS_BPM']
+      },
+      {
+        role: 'Supervisor de Planta & Calidad',
+        mandatoryCredentials: ['FOOD_HANDLER_BPM'],
+        mandatoryTrainings: ['ALIMENTOS_BPM', 'SEGURIDAD_HIGIENE']
+      }
+    ]
   },
   {
     id: 'comp_logistica',
@@ -18,7 +34,40 @@ export const INITIAL_COMPANIES = [
     cuit: '30-68954120-7',
     industry: 'Transporte & Distribución',
     location: 'Rosario, Santa Fe',
-    employeesCount: 2
+    positionRequirements: [
+      {
+        role: 'Chofer de Larga Distancia',
+        mandatoryCredentials: ['DRIVER_LICENSE'],
+        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+      },
+      {
+        role: 'Chofer de Reparto Urbano',
+        mandatoryCredentials: ['DRIVER_LICENSE'],
+        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+      }
+    ]
+  }
+];
+
+// Usuarios Administradores de RRHH reales por empresa
+export const INITIAL_USERS = [
+  {
+    id: 'usr_admin_alimentos',
+    companyId: 'comp_alimentos',
+    name: 'Lic. Paula Santillán',
+    email: 'rrhh@lahuella.com',
+    salt: 'lahuella_salt_2026',
+    passwordHash: '4c11ff4a3b31ad6eed10c30f1c9f0ce9606d272be10ac7835304f6cb90db09f7',
+    role: 'HR_ADMIN'
+  },
+  {
+    id: 'usr_admin_logistica',
+    companyId: 'comp_logistica',
+    name: 'Dr. Fernando Quiroga',
+    email: 'rrhh@transandina.com',
+    salt: 'transandina_salt_2026',
+    passwordHash: '48f2892e4c28f8bbb883ee8de56dd5357200dbdbec47e18757a7c3f0b753631b',
+    role: 'HR_ADMIN'
   }
 ];
 
@@ -30,7 +79,7 @@ export const INITIAL_EMPLOYEES = [
     lastName: 'Gómez',
     dni: '32.458.912',
     email: 'carlos.gomez@lahuella.com',
-    phone: '+54 11 4455-8899',
+    phone: '+54 9 11 4455-8899',
     role: 'Chofer de Reparto Pesado',
     department: 'Logística & Despacho',
     hireDate: '2021-03-15',
@@ -50,7 +99,8 @@ export const INITIAL_EMPLOYEES = [
         categories: ['C (Camión sin acoplado)', 'E (Articulados/Acoplado)', 'LNH (CNRT Cargas Generales)'],
         issueDate: '2024-05-10',
         expirationDate: '2026-11-23', // Vence en ~12 días: ALERTA NARANJA PREVENTIVA
-        notes: 'Examen psicofísico aprobado'
+        notes: 'Examen psicofísico aprobado',
+        attachment: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180"><rect width="300" height="180" rx="10" fill="%23e2e8f0"/><text x="20" y="40" font-family="sans-serif" font-size="14" font-weight="bold" fill="%231e293b">LICENCIA NACIONAL DE CONDUCIR</text><text x="20" y="70" font-size="12" fill="%23475569">Titular: Carlos Alberto Gómez</text><text x="20" y="95" font-size="12" fill="%23475569">DNI: 32.458.912</text><text x="20" y="120" font-size="12" fill="%23475569">Clases: C, E, LNH CNRT</text><text x="20" y="150" font-size="12" font-weight="bold" fill="%23dc2626">Vence: 23/11/2026</text></svg>'
       },
       {
         id: 'cred_cg_bpm',
@@ -58,8 +108,9 @@ export const INITIAL_EMPLOYEES = [
         customLabel: 'Libreta Sanitaria Alimentos',
         number: 'LS-99823',
         issueDate: '2025-01-10',
-        expirationDate: '2027-01-10', // Vigente
-        notes: 'Renovación bianual'
+        expirationDate: '2027-01-10',
+        notes: 'Renovación bianual',
+        attachment: null
       }
     ]
   },
@@ -70,7 +121,7 @@ export const INITIAL_EMPLOYEES = [
     lastName: 'López',
     dni: '36.874.521',
     email: 'mariana.lopez@lahuella.com',
-    phone: '+54 11 6589-3214',
+    phone: '+54 9 11 6589-3214',
     role: 'Operaria de Elaboración & Envasado',
     department: 'Planta de Producción',
     hireDate: '2022-08-01',
@@ -89,7 +140,8 @@ export const INITIAL_EMPLOYEES = [
         number: 'CMA-4458',
         issueDate: '2024-11-01',
         expirationDate: '2026-11-05', // Vencido hace pocos días: ROJO CRÍTICO
-        notes: 'Requiere curso de actualización urgente'
+        notes: 'Requiere curso de actualización urgente',
+        attachment: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180"><rect width="300" height="180" rx="10" fill="%23fee2e2"/><text x="20" y="40" font-family="sans-serif" font-size="14" font-weight="bold" fill="%23991b1b">CARNET MANIPULADOR ALIMENTOS (BPM)</text><text x="20" y="70" font-size="12" fill="%237f1d1d">Mariana Soledad López</text><text x="20" y="95" font-size="12" fill="%237f1d1d">DNI: 36.874.521</text><text x="20" y="140" font-size="12" font-weight="bold" fill="%23b91c1c">ESTADO: VENCIDO (05/11/2026)</text></svg>'
       },
       {
         id: 'cred_ml_art',
@@ -97,8 +149,9 @@ export const INITIAL_EMPLOYEES = [
         customLabel: 'Apto Médico Periódico ART',
         number: 'ART-2026-88',
         issueDate: '2026-02-15',
-        expirationDate: '2027-02-15', // Vigente
-        notes: 'Sin observaciones'
+        expirationDate: '2027-02-15',
+        notes: 'Sin observaciones',
+        attachment: null
       }
     ]
   },
@@ -109,7 +162,7 @@ export const INITIAL_EMPLOYEES = [
     lastName: 'Rojas',
     dni: '29.334.120',
     email: 'esteban.rojas@lahuella.com',
-    phone: '+54 11 5566-7788',
+    phone: '+54 9 11 5566-7788',
     role: 'Supervisor de Planta & Calidad',
     department: 'Aseguramiento de la Calidad',
     hireDate: '2019-01-10',
@@ -126,8 +179,9 @@ export const INITIAL_EMPLOYEES = [
         customLabel: 'Libreta Sanitaria Nacional',
         number: 'LS-33019',
         issueDate: '2026-06-01',
-        expirationDate: '2028-06-01', // Vigente
-        notes: 'Habilitación provincial y nacional'
+        expirationDate: '2028-06-01',
+        notes: 'Habilitación provincial y nacional',
+        attachment: null
       }
     ]
   },
@@ -138,7 +192,7 @@ export const INITIAL_EMPLOYEES = [
     lastName: 'Vargas',
     dni: '34.901.654',
     email: 'martin.vargas@transandina.com',
-    phone: '+54 341 487-9900',
+    phone: '+54 9 341 487-9900',
     role: 'Chofer de Larga Distancia',
     department: 'Flota Pesada',
     hireDate: '2020-05-18',
@@ -156,8 +210,9 @@ export const INITIAL_EMPLOYEES = [
         number: '34901654',
         categories: ['E (Articulados/Acoplado)', 'LNH (CNRT Peligrosas)'],
         issueDate: '2025-08-20',
-        expirationDate: '2027-08-20', // Vigente
-        notes: 'Cargas generales y peligrosas al día'
+        expirationDate: '2027-08-20',
+        notes: 'Cargas generales y peligrosas al día',
+        attachment: null
       }
     ]
   },
@@ -168,7 +223,7 @@ export const INITIAL_EMPLOYEES = [
     lastName: 'Benítez',
     dni: '40.125.789',
     email: 'lucas.benitez@transandina.com',
-    phone: '+54 341 555-1234',
+    phone: '+54 9 341 555-1234',
     role: 'Chofer de Reparto Urbano',
     department: 'Distribución Local',
     hireDate: '2024-02-01',
@@ -186,7 +241,8 @@ export const INITIAL_EMPLOYEES = [
         categories: ['B (Auto/Camioneta)', 'C (Camión sin acoplado)'],
         issueDate: '2024-11-15',
         expirationDate: '2026-11-17', // Vence en ~6 días: CRÍTICO ROJO
-        notes: 'Debe gestionar turno de renovación inmediatamente'
+        notes: 'Debe gestionar turno de renovación inmediatamente',
+        attachment: null
       }
     ]
   }
@@ -202,7 +258,7 @@ export const INITIAL_COURSES = [
     date: '2026-11-20',
     durationHours: 4,
     instructorName: 'Lic. Romina Valenzuela (Bromatóloga)',
-    instructorSignature: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><path d="M10 25 Q 40 5 60 20 T 110 15" stroke="black" fill="transparent" stroke-width="2"/></svg>',
+    instructorSignature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xMCAyNSBRIDQwIDUgNjAgMjAgVCAxMTAgMTUiIHN0cm9rZT0iYmxhY2siIGZpbGw9InRyYW5zcGFyZW50IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=',
     instructorSignatureHash: 'sig-hash-bpm-instructor-2026',
     status: 'SCHEDULED',
     participants: [
@@ -237,7 +293,7 @@ export const INITIAL_COURSES = [
     date: '2026-10-15',
     durationHours: 6,
     instructorName: 'Ing. Claudio Mendoza (Seguridad Vial)',
-    instructorSignature: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><path d="M10 20 Q 30 10 50 25 T 100 15" stroke="black" fill="transparent" stroke-width="2"/></svg>',
+    instructorSignature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xMCAyMCBRIDMwIDEwIDUwIDI1IFQgMTAwIDE1IiBzdHJva2U9ImJsYWNrIiBmaWxsPSJ0cmFuc3BhcmVudCIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9zdmc+',
     instructorSignatureHash: 'sig-hash-vial-instructor-994',
     status: 'COMPLETED',
     participants: [
@@ -247,7 +303,7 @@ export const INITIAL_COURSES = [
         attended: true,
         passed: true,
         score: 9.5,
-        signature: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><path d="M15 25 Q 35 10 70 30 T 110 20" stroke="blue" fill="transparent" stroke-width="2"/></svg>',
+        signature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xNSAyNSBRIDM1IDEwIDcwIDMwIFQgMTEwIDIwIiBzdHJva2U9ImJsdWUiIGZpbGw9InRyYW5zcGFyZW50IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=',
         signatureHash: 'sig-hash-cg-vial-completed',
         signedAt: '2026-10-15T17:30:00.000Z'
       }

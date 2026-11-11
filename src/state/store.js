@@ -1,65 +1,83 @@
 /**
- * TalentTrack Central Reactive Store (AiAppFactory Standard)
- * Multi-company state, offline-first persistence, tombstone support,
- * and zero-ghost seeding invariant (mipcontrol_demo_purged).
+ * TalentTrack Central Reactive Store (AiAppFactory Standard - Rule #6, #10 & #24)
+ * Multi-tenant state, session management, file attachment handling,
+ * and position requirements engine.
  */
 
-import { INITIAL_COMPANIES, INITIAL_EMPLOYEES, INITIAL_COURSES } from './initialData.js';
+import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES } from './initialData.js';
 
-const STORAGE_KEY_PREFIX = 'talenttrack_';
+const STORAGE_KEY_PREFIX = 'talenttrack_vault_';
 const PURGE_FLAG_KEY = 'mipcontrol_demo_purged';
+const SESSION_KEY = 'talenttrack_active_session';
 
 class Store {
   constructor() {
     this.companies = [];
+    this.users = [];
     this.employees = [];
     this.courses = [];
-    this.currentCompanyId = null;
-    this.currentUserRole = 'HR_ADMIN'; // 'HR_ADMIN' | 'EMPLOYEE'
-    this.currentEmployeeId = null;
+    this.activeSession = null;
     this.listeners = new Set();
     this.isInitialized = false;
     this._memoryFallbackStorage = new Map();
   }
 
-  /**
-   * Initializes the store from storage or initial seed.
-   */
   init() {
     if (this.isInitialized) return;
 
     const isPurged = this._getStorageItem(PURGE_FLAG_KEY) === 'true';
 
     if (isPurged) {
-      // Si fue purgado expresamente, no re-sembrar fantasmas
       this.companies = this._getStorageJSON('companies') || [];
+      this.users = this._getStorageJSON('users') || [];
       this.employees = this._getStorageJSON('employees') || [];
       this.courses = this._getStorageJSON('courses') || [];
     } else {
-      // Cargar persistido o sembrar inicial
       const storedCompanies = this._getStorageJSON('companies');
+      const storedUsers = this._getStorageJSON('users');
       const storedEmployees = this._getStorageJSON('employees');
       const storedCourses = this._getStorageJSON('courses');
 
       this.companies = (storedCompanies && storedCompanies.length > 0) ? storedCompanies : JSON.parse(JSON.stringify(INITIAL_COMPANIES));
+      this.users = (storedUsers && storedUsers.length > 0) ? storedUsers : JSON.parse(JSON.stringify(INITIAL_USERS));
       this.employees = (storedEmployees && storedEmployees.length > 0) ? storedEmployees : JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
       this.courses = (storedCourses && storedCourses.length > 0) ? storedCourses : JSON.parse(JSON.stringify(INITIAL_COURSES));
 
       this._saveAll();
     }
 
-    if (this.companies.length > 0 && !this.currentCompanyId) {
-      this.currentCompanyId = this.companies[0].id;
-    }
-    if (this.employees.length > 0 && !this.currentEmployeeId) {
-      this.currentEmployeeId = this.employees[0].id;
+    // Restaurar sesión activa si existiera
+    const storedSession = this._getStorageJSON('session');
+    if (storedSession && storedSession.token) {
+      this.activeSession = storedSession;
     }
 
     this.isInitialized = true;
     this.notify();
   }
 
-  // --- Subscriptions & Reactivity ---
+  // --- Sesión y Seguridad (Regla 24) ---
+  getSession() {
+    return this.activeSession;
+  }
+
+  isAuthenticated() {
+    return this.activeSession !== null && !!this.activeSession.token;
+  }
+
+  setSession(session) {
+    this.activeSession = session;
+    this._setStorageJSON('session', session);
+    this.notify();
+  }
+
+  logout() {
+    this.activeSession = null;
+    this._removeStorageItem(STORAGE_KEY_PREFIX + 'session');
+    this.notify();
+  }
+
+  // --- Subscriptions ---
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -75,36 +93,31 @@ class Store {
     }
   }
 
-  // --- Companies ---
+  // --- Companies & Multi-Tenant Aislamiento (Regla 10) ---
   getCompanies() {
-    return [...this.companies];
+    if (!this.isAuthenticated()) return [];
+    if (this.activeSession.role === 'HR_ADMIN') {
+      return this.companies.filter(c => c.id === this.activeSession.companyId);
+    }
+    return this.companies.filter(c => c.id === this.activeSession.companyId);
   }
 
   getCurrentCompany() {
-    return this.companies.find(c => c.id === this.currentCompanyId) || this.companies[0] || null;
+    if (!this.isAuthenticated()) return null;
+    return this.companies.find(c => c.id === this.activeSession.companyId) || null;
   }
 
-  setCurrentCompany(companyId) {
-    if (this.companies.some(c => c.id === companyId)) {
-      this.currentCompanyId = companyId;
-      this.notify();
+  // --- Employees (Confinamiento Estricto Zero-Leak) ---
+  getEmployees() {
+    if (!this.isAuthenticated()) return [];
+
+    // Si es colaborador, estrictamente solo se ve a sí mismo
+    if (this.activeSession.role === 'EMPLOYEE') {
+      return this.employees.filter(e => e.id === this.activeSession.employeeId && e.active !== false);
     }
-  }
 
-  addCompany(company) {
-    const id = company.id || `comp_${Date.now()}`;
-    const newCompany = { ...company, id };
-    this.companies.push(newCompany);
-    this._saveAll();
-    this.notify();
-    return newCompany;
-  }
-
-  // --- Employees ---
-  getEmployees(companyId = null) {
-    const targetCompany = companyId || this.currentCompanyId;
-    if (!targetCompany) return [...this.employees];
-    return this.employees.filter(e => e.companyId === targetCompany && e.active !== false);
+    // Si es Administrador de RRHH, ve todos los de su empresa
+    return this.employees.filter(e => e.companyId === this.activeSession.companyId && e.active !== false);
   }
 
   getAllEmployees() {
@@ -112,14 +125,26 @@ class Store {
   }
 
   getEmployeeById(id) {
-    return this.employees.find(e => e.id === id) || null;
+    const emp = this.employees.find(e => e.id === id);
+    if (!emp) return null;
+
+    // Regla de aislamiento: no permitir ver empleados de otra empresa
+    if (this.isAuthenticated() && emp.companyId !== this.activeSession.companyId) {
+      console.warn('⛔ [Store] Intento de acceso cross-tenant bloqueado');
+      return null;
+    }
+    return emp;
   }
 
   addEmployee(empData) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('No autorizado para dar de alta colaboradores.');
+    }
+
     const id = empData.id || `emp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newEmp = {
       id,
-      companyId: empData.companyId || this.currentCompanyId,
+      companyId: this.activeSession.companyId,
       firstName: empData.firstName || '',
       lastName: empData.lastName || '',
       dni: empData.dni || '',
@@ -140,13 +165,15 @@ class Store {
   }
 
   updateEmployee(id, updates) {
-    const idx = this.employees.findIndex(e => e.id === id);
-    if (idx === -1) return null;
+    const emp = this.getEmployeeById(id);
+    if (!emp) return null;
 
+    const idx = this.employees.findIndex(e => e.id === id);
     this.employees[idx] = {
       ...this.employees[idx],
       ...updates,
-      id // id inmutable
+      id,
+      companyId: emp.companyId // Inmutable
     };
 
     this._saveAll();
@@ -155,16 +182,16 @@ class Store {
   }
 
   deleteEmployee(id) {
-    // Soft delete (tombstone pattern)
-    const idx = this.employees.findIndex(e => e.id === id);
-    if (idx === -1) return false;
-    this.employees[idx].active = false;
+    const emp = this.getEmployeeById(id);
+    if (!emp) return false;
+
+    emp.active = false; // Tombstone pattern
     this._saveAll();
     this.notify();
     return true;
   }
 
-  // --- Skills inside Employee ---
+  // --- Skills ---
   addSkillToEmployee(employeeId, skill) {
     const emp = this.getEmployeeById(employeeId);
     if (!emp) return false;
@@ -180,7 +207,6 @@ class Store {
       notes: skill.notes || ''
     };
 
-    // Si ya existe la misma habilidad, actualizar nivel
     const existingIdx = emp.skills.findIndex(s => s.name.toLowerCase() === newSkill.name.toLowerCase());
     if (existingIdx >= 0) {
       emp.skills[existingIdx] = { ...emp.skills[existingIdx], ...newSkill };
@@ -193,17 +219,7 @@ class Store {
     return true;
   }
 
-  removeSkillFromEmployee(employeeId, skillId) {
-    const emp = this.getEmployeeById(employeeId);
-    if (!emp || !emp.skills) return false;
-
-    emp.skills = emp.skills.filter(s => s.id !== skillId);
-    this._saveAll();
-    this.notify();
-    return true;
-  }
-
-  // --- Credentials / Carnets inside Employee ---
+  // --- Credenciales con Adjunto Real (Foto / Documento) ---
   addCredentialToEmployee(employeeId, cred) {
     const emp = this.getEmployeeById(employeeId);
     if (!emp) return false;
@@ -219,7 +235,7 @@ class Store {
       issueDate: cred.issueDate || '',
       expirationDate: cred.expirationDate || '',
       notes: cred.notes || '',
-      documentAttachment: cred.documentAttachment || null
+      attachment: cred.attachment || null // DataURL o SVG del carnet real
     };
 
     emp.credentials.push(newCred);
@@ -228,32 +244,36 @@ class Store {
     return true;
   }
 
-  removeCredentialFromEmployee(employeeId, credentialId) {
-    const emp = this.getEmployeeById(employeeId);
-    if (!emp || !emp.credentials) return false;
+  // --- Capacitaciones LMS ---
+  getCourses() {
+    if (!this.isAuthenticated()) return [];
+    const companyCourses = this.courses.filter(c => c.companyId === this.activeSession.companyId);
 
-    emp.credentials = emp.credentials.filter(c => c.id !== credentialId);
-    this._saveAll();
-    this.notify();
-    return true;
-  }
-
-  // --- Courses & LMS ---
-  getCourses(companyId = null) {
-    const target = companyId || this.currentCompanyId;
-    if (!target) return [...this.courses];
-    return this.courses.filter(c => c.companyId === target);
+    // Si es colaborador, filtrar donde esté convocado
+    if (this.activeSession.role === 'EMPLOYEE') {
+      return companyCourses.filter(c => (c.participants || []).some(p => p.employeeId === this.activeSession.employeeId));
+    }
+    return companyCourses;
   }
 
   getCourseById(id) {
-    return this.courses.find(c => c.id === id) || null;
+    const course = this.courses.find(c => c.id === id);
+    if (!course) return null;
+    if (this.isAuthenticated() && course.companyId !== this.activeSession.companyId) {
+      return null;
+    }
+    return course;
   }
 
   addCourse(courseData) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('No autorizado para programar cursos.');
+    }
+
     const id = courseData.id || `course_${Date.now()}`;
     const newCourse = {
       id,
-      companyId: courseData.companyId || this.currentCompanyId,
+      companyId: this.activeSession.companyId,
       title: courseData.title || 'Curso de Capacitación',
       category: courseData.category || 'SEGURIDAD_HIGIENE',
       description: courseData.description || '',
@@ -262,7 +282,7 @@ class Store {
       instructorName: courseData.instructorName || '',
       instructorSignature: courseData.instructorSignature || null,
       instructorSignatureHash: courseData.instructorSignatureHash || null,
-      status: courseData.status || 'SCHEDULED', // SCHEDULED, IN_PROGRESS, COMPLETED
+      status: courseData.status || 'SCHEDULED',
       participants: courseData.participants || []
     };
 
@@ -270,21 +290,6 @@ class Store {
     this._saveAll();
     this.notify();
     return newCourse;
-  }
-
-  updateCourse(id, updates) {
-    const idx = this.courses.findIndex(c => c.id === id);
-    if (idx === -1) return null;
-
-    this.courses[idx] = {
-      ...this.courses[idx],
-      ...updates,
-      id
-    };
-
-    this._saveAll();
-    this.notify();
-    return this.courses[idx];
   }
 
   signParticipant(courseId, employeeId, { signature, signatureHash, score, passed = true }) {
@@ -339,12 +344,10 @@ class Store {
 
     course.status = 'COMPLETED';
 
-    // Sincronizar automáticamente con las habilidades y legajo de los aprobados
     (course.participants || []).forEach(p => {
       if (p.attended && p.passed) {
         const emp = this.getEmployeeById(p.employeeId);
         if (emp) {
-          // Si el curso aporta una skill conocida
           let skillName = course.title;
           if (course.category === 'ALIMENTOS_BPM') skillName = 'Buenas Prácticas de Manufactura (BPM)';
           if (course.category === 'MANEJO_DEFENSIVO') skillName = 'Manejo Defensivo y Seguridad Vial';
@@ -353,7 +356,7 @@ class Store {
             name: skillName,
             level: 3,
             source: 'CURRENT_ROLE',
-            notes: `Capacitación aprobada: ${course.title} (${course.date})`
+            notes: `Capacitación completada con firma electrónica: ${course.title} (${course.date})`
           });
         }
       }
@@ -364,13 +367,39 @@ class Store {
     return true;
   }
 
-  // --- Purge & Demo Management (Anti-Siembra Fantasma Invariant) ---
+  // --- Requisitos por Puesto Configurables (Desacople de Hardcode) ---
+  getPositionRequirements(roleName) {
+    const comp = this.getCurrentCompany();
+    if (!comp || !comp.positionRequirements) return null;
+    return comp.positionRequirements.find(r => r.role.toLowerCase() === (roleName || '').toLowerCase()) || null;
+  }
+
+  setPositionRequirements(roleName, { mandatoryCredentials = [], mandatoryTrainings = [] }) {
+    const comp = this.getCurrentCompany();
+    if (!comp) return false;
+    if (!comp.positionRequirements) comp.positionRequirements = [];
+
+    const existingIdx = comp.positionRequirements.findIndex(r => r.role.toLowerCase() === roleName.toLowerCase());
+    const reqObj = { role: roleName, mandatoryCredentials, mandatoryTrainings };
+
+    if (existingIdx >= 0) {
+      comp.positionRequirements[existingIdx] = reqObj;
+    } else {
+      comp.positionRequirements.push(reqObj);
+    }
+
+    this._saveAll();
+    this.notify();
+    return true;
+  }
+
+  // --- Purga & Demo (Invariante Anti-Siembras Fantasma) ---
   purgeAllData() {
     this.companies = [];
+    this.users = [];
     this.employees = [];
     this.courses = [];
-    this.currentCompanyId = null;
-    this.currentEmployeeId = null;
+    this.activeSession = null;
 
     this._setStorageItem(PURGE_FLAG_KEY, 'true');
     this._saveAll();
@@ -380,20 +409,34 @@ class Store {
   restoreDemoData() {
     this._removeStorageItem(PURGE_FLAG_KEY);
     this.companies = JSON.parse(JSON.stringify(INITIAL_COMPANIES));
+    this.users = JSON.parse(JSON.stringify(INITIAL_USERS));
     this.employees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
     this.courses = JSON.parse(JSON.stringify(INITIAL_COURSES));
-    this.currentCompanyId = this.companies[0]?.id || null;
-    this.currentEmployeeId = this.employees[0]?.id || null;
+
+    // Sesión por defecto en demo para pruebas inmediatas
+    this.activeSession = {
+      userId: this.users[0].id,
+      name: this.users[0].name,
+      email: this.users[0].email,
+      role: 'HR_ADMIN',
+      companyId: this.users[0].companyId,
+      token: 'TT_DEMO_TOKEN_ACTIVE',
+      loginAt: new Date().toISOString()
+    };
 
     this._saveAll();
     this.notify();
   }
 
-  // --- Storage Helpers ---
+  // --- Storage Internals ---
   _saveAll() {
     this._setStorageJSON('companies', this.companies);
+    this._setStorageJSON('users', this.users);
     this._setStorageJSON('employees', this.employees);
     this._setStorageJSON('courses', this.courses);
+    if (this.activeSession) {
+      this._setStorageJSON('session', this.activeSession);
+    }
   }
 
   _getStorageItem(key) {

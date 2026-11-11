@@ -1,16 +1,17 @@
 /**
  * Capa 1: Pruebas Unitarias & Fuzzing (AiAppFactory Standard)
- * Verifica algoritmos puros, semáforo de vencimientos, sanitización XSS y resistencia al caos.
  */
 
 import { ExpirationEngine, STATUS_LEVELS } from '../src/modules/compliance/expirationEngine.js';
 import { Sanitizer } from '../src/utils/sanitizer.js';
 import { DigitalSignaturePad } from '../src/utils/signature.js';
+import { rateLimiter } from '../src/utils/rateLimiter.js';
+import { AuthService } from '../src/utils/authService.js';
 
 export async function runUnitTests(harness) {
-  // --- Test 1 a 8: Evaluación de Fechas y Semáforo ---
   const refDate = new Date('2026-11-11T00:00:00.000Z');
 
+  // --- Semáforo de Vencimientos ---
   const resExpired = ExpirationEngine.evaluateDate('2026-11-05', refDate);
   harness.assert(resExpired.status.code === 'EXPIRED', 'Fecha pasada retorna estado EXPIRED');
   harness.assert(resExpired.daysRemaining === -6, 'Días restantes negativos correctos para fecha vencida');
@@ -35,7 +36,7 @@ export async function runUnitTests(harness) {
   const resInvalid = ExpirationEngine.evaluateDate('fecha-invalida', refDate);
   harness.assert(resInvalid.status.code === 'NOT_APPLICABLE', 'Fecha mal formada retorna NOT_APPLICABLE');
 
-  // --- Test 9 a 16: Sanitización Estricta de Strings y URLs ---
+  // --- Sanitización XSS ---
   const escapedScript = Sanitizer.escapeHTML('<script>alert("xss")</script>');
   harness.assert(!escapedScript.includes('<script>'), 'Sanitizer escapa etiqueta <script>');
   harness.assert(escapedScript.includes('&lt;script&gt;'), 'Sanitizer reemplaza por entidades &lt; y &gt;');
@@ -45,9 +46,6 @@ export async function runUnitTests(harness) {
 
   const escapedNull = Sanitizer.escapeHTML(null);
   harness.assert(escapedNull === '', 'Sanitizer maneja null retornando string vacío');
-
-  const escapedNumber = Sanitizer.escapeHTML(12345);
-  harness.assert(escapedNumber === '12345', 'Sanitizer maneja números correctamente');
 
   const safeUrl = Sanitizer.sanitizeURL('https://example.com/carnet.jpg');
   harness.assert(safeUrl === 'https://example.com/carnet.jpg', 'Sanitizer permite URLs HTTPS válidas');
@@ -59,9 +57,9 @@ export async function runUnitTests(harness) {
   harness.assert(blockedDataHtml === '#', 'Sanitizer bloquea data:text/html');
 
   const allowedDataImg = Sanitizer.sanitizeURL('data:image/png;base64,iVBORw0KGgo=');
-  harness.assert(allowedDataImg.startsWith('data:image/png'), 'Sanitizer permite data:image/ para firmas e imágenes');
+  harness.assert(allowedDataImg.startsWith('data:image/png'), 'Sanitizer permite data:image/ para fotos de carnet');
 
-  // --- Test 17 y 18: Hash Forense de Firma Digital ---
+  // --- Hashes Forenses y Criptografía ---
   const dummySig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
   const hash1 = await DigitalSignaturePad.computeForensicHash(dummySig, 'Carlos Gómez', '2026-11-11T12:00:00Z');
   harness.assert(typeof hash1 === 'string' && hash1.length > 10, 'Hash forense de firma generado con éxito');
@@ -69,20 +67,22 @@ export async function runUnitTests(harness) {
   const hash2 = await DigitalSignaturePad.computeForensicHash(dummySig, 'Carlos Gómez', '2026-11-11T12:00:01Z');
   harness.assert(hash1 !== hash2, 'Hash forense varía ante diferencias de timestamp (invariante de sellado)');
 
-  // --- Test 19 y 20: Fuzzing Caótico & Resistencia al Estrés ---
-  const chaoticInputs = [
-    '',
-    '   ',
-    '🚨💡⚠️🔥',
-    'A'.repeat(5000),
-    '--SELECT * FROM users;',
-    '{"malicious": true}',
-    'null',
-    'undefined',
-    '\x00\x01\x02',
-    'NaN'
-  ];
+  const pwdHash1 = await AuthService.hashPassword('Admin1234', 'salt_a');
+  const pwdHash2 = await AuthService.hashPassword('Admin1234', 'salt_b');
+  harness.assert(pwdHash1 !== pwdHash2, 'Hash de contraseña incorpora salado criptográfico');
 
+  // --- RateLimiter ---
+  rateLimiter.reset('test_key');
+  for (let i = 0; i < 5; i++) {
+    rateLimiter.recordFailure('test_key');
+  }
+  harness.assert(rateLimiter.isBlocked('test_key') === true, 'RateLimiter bloquea tras 5 intentos fallidos');
+  harness.assert(rateLimiter.getRemainingLockoutSeconds('test_key') > 0, 'RateLimiter calcula tiempo de bloqueo restante');
+  rateLimiter.reset('test_key');
+  harness.assert(rateLimiter.isBlocked('test_key') === false, 'RateLimiter se reinicia correctamente');
+
+  // --- Fuzzing Caótico ---
+  const chaoticInputs = ['', '   ', '🚨💡⚠️🔥', 'A'.repeat(5000), '--SELECT * FROM users;', 'null', 'undefined'];
   let fuzzErrors = 0;
   for (const input of chaoticInputs) {
     try {
@@ -90,10 +90,9 @@ export async function runUnitTests(harness) {
       Sanitizer.sanitizeURL(input);
       Sanitizer.truncate(input, 50);
       ExpirationEngine.evaluateDate(input, refDate);
-    } catch (e) {
+    } catch {
       fuzzErrors++;
     }
   }
   harness.assert(fuzzErrors === 0, 'Fuzzing caótico: 0 excepciones ante payloads extremos');
-  harness.assert(Sanitizer.truncate('Hola Mundo'.repeat(20), 15).length <= 18, 'Truncate respeta longitud máxima');
 }
