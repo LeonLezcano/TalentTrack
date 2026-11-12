@@ -4,7 +4,8 @@
  * and position requirements engine.
  */
 
-import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES, INITIAL_EPP_DELIVERIES, EPP_CATALOG } from './initialData.js';
+import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES, INITIAL_EPP_DELIVERIES, INITIAL_LEAVES, EPP_CATALOG } from './initialData.js';
+import { LeaveEngine } from '../modules/leaves/leaveEngine.js';
 
 const STORAGE_KEY_PREFIX = 'talenttrack_vault_';
 const PURGE_FLAG_KEY = 'mipcontrol_demo_purged';
@@ -17,6 +18,7 @@ class Store {
     this.employees = [];
     this.courses = [];
     this.eppDeliveries = [];
+    this.leaves = [];
     this.activeSession = null;
     this.listeners = new Set();
     this.isInitialized = false;
@@ -34,18 +36,21 @@ class Store {
       this.employees = this._getStorageJSON('employees') || [];
       this.courses = this._getStorageJSON('courses') || [];
       this.eppDeliveries = this._getStorageJSON('eppDeliveries') || [];
+      this.leaves = this._getStorageJSON('leaves') || [];
     } else {
       const storedCompanies = this._getStorageJSON('companies');
       const storedUsers = this._getStorageJSON('users');
       const storedEmployees = this._getStorageJSON('employees');
       const storedCourses = this._getStorageJSON('courses');
       const storedEpp = this._getStorageJSON('eppDeliveries');
+      const storedLeaves = this._getStorageJSON('leaves');
 
       this.companies = (storedCompanies && storedCompanies.length > 0) ? storedCompanies : JSON.parse(JSON.stringify(INITIAL_COMPANIES));
       this.users = (storedUsers && storedUsers.length > 0) ? storedUsers : JSON.parse(JSON.stringify(INITIAL_USERS));
       this.employees = (storedEmployees && storedEmployees.length > 0) ? storedEmployees : JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
       this.courses = (storedCourses && storedCourses.length > 0) ? storedCourses : JSON.parse(JSON.stringify(INITIAL_COURSES));
       this.eppDeliveries = (storedEpp && storedEpp.length > 0) ? storedEpp : JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
+      this.leaves = (storedLeaves && storedLeaves.length > 0) ? storedLeaves : JSON.parse(JSON.stringify(INITIAL_LEAVES));
 
       this._saveAll();
     }
@@ -405,6 +410,7 @@ class Store {
     this.employees = [];
     this.courses = [];
     this.eppDeliveries = [];
+    this.leaves = [];
     this.activeSession = null;
 
     this._setStorageItem(PURGE_FLAG_KEY, 'true');
@@ -419,6 +425,7 @@ class Store {
     this.employees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
     this.courses = JSON.parse(JSON.stringify(INITIAL_COURSES));
     this.eppDeliveries = JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
+    this.leaves = JSON.parse(JSON.stringify(INITIAL_LEAVES));
 
     // Sesión por defecto en demo para pruebas inmediatas
     this.activeSession = {
@@ -517,6 +524,111 @@ class Store {
     return true;
   }
 
+  // --- Módulo Vacaciones, Licencias & Ausentismo ---
+  getLeaves() {
+    if (!this.isAuthenticated()) return [];
+    if (this.activeSession.role === 'EMPLOYEE') {
+      return this.leaves.filter(l => l.employeeId === this.activeSession.employeeId);
+    }
+    return this.leaves.filter(l => l.companyId === this.activeSession.companyId);
+  }
+
+  getLeavesByEmployee(empId) {
+    if (!this.isAuthenticated()) return [];
+    if (this.activeSession.role === 'EMPLOYEE' && this.activeSession.employeeId !== empId) {
+      return [];
+    }
+    return this.leaves.filter(l => l.employeeId === empId && l.companyId === this.activeSession.companyId);
+  }
+
+  requestLeave(leaveData) {
+    if (!this.isAuthenticated()) {
+      throw new Error('Debe iniciar sesión para solicitar una licencia.');
+    }
+
+    const empId = leaveData.employeeId || this.activeSession.employeeId;
+    const emp = this.getEmployeeById(empId);
+    if (!emp) throw new Error('Colaborador no encontrado.');
+
+    if (!leaveData.startDate || !leaveData.endDate) {
+      throw new Error('Debe especificar fecha de inicio y de fin.');
+    }
+
+    if (LeaveEngine.hasOverlap(this.leaves, emp.id, leaveData.startDate, leaveData.endDate)) {
+      throw new Error('La solicitud se superpone con otra licencia ya registrada para estas fechas.');
+    }
+
+    const calculatedDays = LeaveEngine.calculateDaysBetween(leaveData.startDate, leaveData.endDate);
+    const days = Number(leaveData.days) || calculatedDays || 1;
+
+    const id = leaveData.id || `leave_${Date.now()}`;
+    const newLeave = {
+      id,
+      companyId: this.activeSession.companyId,
+      employeeId: emp.id,
+      employeeName: `${emp.firstName} ${emp.lastName}`,
+      type: leaveData.type || 'VACATION',
+      startDate: leaveData.startDate,
+      endDate: leaveData.endDate,
+      days,
+      reason: leaveData.reason?.trim() || '',
+      status: 'PENDING',
+      requestedAt: new Date().toISOString(),
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: null,
+      certificateUrl: leaveData.certificateUrl || null
+    };
+
+    this.leaves.push(newLeave);
+    this._saveAll();
+    this.notify();
+    return newLeave;
+  }
+
+  reviewLeave(leaveId, decision, reviewNotes = '') {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('Solo el Administrador de RRHH puede aprobar o rechazar licencias.');
+    }
+
+    const leave = this.leaves.find(l => l.id === leaveId && l.companyId === this.activeSession.companyId);
+    if (!leave) throw new Error('Licencia no encontrada.');
+
+    if (decision !== 'APPROVED' && decision !== 'REJECTED') {
+      throw new Error('Decisión inválida. Debe ser APPROVED o REJECTED.');
+    }
+
+    const notes = typeof reviewNotes === 'object' ? (reviewNotes.notes || '') : reviewNotes;
+    const reviewer = (typeof reviewNotes === 'object' && reviewNotes.reviewerName) ? reviewNotes.reviewerName : (this.activeSession.name || 'Administrador de RRHH');
+
+    leave.status = decision;
+    leave.reviewedBy = reviewer;
+    leave.reviewedAt = new Date().toISOString();
+    leave.reviewNotes = notes ? notes.trim() : null;
+
+    this._saveAll();
+    this.notify();
+    return leave;
+  }
+
+  deleteLeave(leaveId) {
+    if (!this.isAuthenticated()) return false;
+    const index = this.leaves.findIndex(l => l.id === leaveId && l.companyId === this.activeSession.companyId);
+    if (index === -1) return false;
+
+    // Si es colaborador, solo puede cancelar si está pendiente
+    if (this.activeSession.role === 'EMPLOYEE') {
+      if (this.leaves[index].employeeId !== this.activeSession.employeeId || this.leaves[index].status !== 'PENDING') {
+        throw new Error('Solo puede cancelar solicitudes pendientes propias.');
+      }
+    }
+
+    this.leaves.splice(index, 1);
+    this._saveAll();
+    this.notify();
+    return true;
+  }
+
   // --- Storage Internals ---
   _saveAll() {
     this._setStorageJSON('companies', this.companies);
@@ -524,6 +636,7 @@ class Store {
     this._setStorageJSON('employees', this.employees);
     this._setStorageJSON('courses', this.courses);
     this._setStorageJSON('eppDeliveries', this.eppDeliveries);
+    this._setStorageJSON('leaves', this.leaves);
     if (this.activeSession) {
       this._setStorageJSON('session', this.activeSession);
     }

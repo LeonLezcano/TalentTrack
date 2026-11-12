@@ -149,4 +149,77 @@ export async function runIntegrationTests(harness) {
   const delCountBefore = store.getEppDeliveries().length;
   store.deleteEppDelivery(newDel.id);
   harness.assert(store.getEppDeliveries().length === delCountBefore - 1, 'deleteEppDelivery elimina el registro correctamente');
+
+  // --- Capa 2: Integración de Vacaciones, Licencias y Ausentismo (LCT 20.744) ---
+  const allInitialLeaves = store.getLeaves();
+  harness.assert(allInitialLeaves.length >= 2, 'Store inicializa licencias demo para la empresa');
+  harness.assert(allInitialLeaves.some(l => l.type === 'VACATION'), 'Existe solicitud inicial de vacaciones');
+  harness.assert(allInitialLeaves.some(l => l.type === 'MEDICAL'), 'Existe solicitud inicial de licencia médica');
+
+  // Solicitud de licencia válida
+  const newLeave = store.requestLeave({
+    employeeId: empTarget.id,
+    type: 'VACATION',
+    startDate: '2026-12-15',
+    endDate: '2026-12-28',
+    reason: 'Vacaciones de fin de año con la familia'
+  });
+  harness.assert(newLeave && (newLeave.id.startsWith('leave_') || newLeave.id.startsWith('lev_')), 'requestLeave genera ID único de licencia');
+  harness.assert(newLeave.days === 14, 'requestLeave calcula 14 días corridos automáticamente');
+  harness.assert(newLeave.status === 'PENDING', 'Nueva licencia inicia en estado PENDING');
+
+  // Intento de solapamiento en el mismo rango de fechas
+  let overlapBlocked = false;
+  let overlapErrorMsg = '';
+  try {
+    store.requestLeave({
+      employeeId: empTarget.id,
+      type: 'STUDY_EXAM',
+      startDate: '2026-12-20',
+      endDate: '2026-12-22',
+      reason: 'Examen de logística'
+    });
+  } catch (err) {
+    overlapBlocked = true;
+    overlapErrorMsg = err.message;
+  }
+  harness.assert(overlapBlocked === true, 'Bloquea solicitud que se solapa con licencia activa');
+  harness.assert(overlapErrorMsg.includes('superpone') || overlapErrorMsg.includes('solap'), 'Mensaje de error explícito ante solapamiento');
+
+  // Aprobación de licencia por RRHH
+  const approvedLeave = store.reviewLeave(newLeave.id, 'APPROVED', {
+    notes: 'Aprobado según cronograma de turnos',
+    reviewerName: 'Lic. RRHH Alimentos'
+  });
+  harness.assert(approvedLeave && approvedLeave.status === 'APPROVED', 'reviewLeave permite aprobar licencia');
+  harness.assert(approvedLeave.reviewedBy === 'Lic. RRHH Alimentos', 'Registra responsable de la aprobación');
+
+  // Confinamiento de rol EMPLOYEE en visualización de licencias
+  store.setSession({
+    userId: empTarget.id,
+    employeeId: empTarget.id,
+    role: 'EMPLOYEE',
+    companyId: compAlimentosId,
+    token: 'EMP_TOKEN'
+  });
+
+  const empOwnLeaves = store.getLeaves();
+  harness.assert(empOwnLeaves.every(l => l.employeeId === empTarget.id), 'Confinamiento de Licencias: Colaborador solo ve sus propias licencias');
+
+  // Volver a rol Admin para rechazo y eliminación
+  store.setSession({
+    userId: 'usr_admin_alimentos',
+    role: 'HR_ADMIN',
+    companyId: compAlimentosId,
+    token: 'ADMIN_TOKEN'
+  });
+
+  const rejectedLeave = store.reviewLeave(newLeave.id, 'REJECTED', {
+    notes: 'Rechazado por necesidad de cobertura de temporada'
+  });
+  harness.assert(rejectedLeave && rejectedLeave.status === 'REJECTED', 'reviewLeave permite rechazar licencia con motivo');
+
+  const leavesCountBefore = store.getLeaves().length;
+  store.deleteLeave(newLeave.id);
+  harness.assert(store.getLeaves().length === leavesCountBefore - 1, 'deleteLeave elimina la licencia del registro');
 }

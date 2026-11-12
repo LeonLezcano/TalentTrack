@@ -16,6 +16,7 @@ import { DigitalSignaturePad } from './utils/signature.js';
 import { Exporter } from './modules/reports/exporter.js';
 import { Notifier } from './utils/notifier.js';
 import { ImageUploadService } from './utils/imageUploadService.js';
+import { LeaveEngine, LEAVE_TYPES, LEAVE_STATUS } from './modules/leaves/leaveEngine.js';
 
 const WHATSAPP_ICON_SVG = `<svg class="w-4 h-4 shrink-0 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>`;
 const DOSSIER_ICON_SVG = `<svg class="w-4 h-4 shrink-0 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>`;
@@ -167,6 +168,28 @@ class AppController {
         }
         break;
 
+      case 'open-modal-request-leave':
+        this.openModal('modal-request-leave');
+        break;
+
+      case 'approve-leave':
+        store.reviewLeave(id, 'APPROVED');
+        Notifier.showToast('Licencia aprobada y computada en el saldo', 'success');
+        break;
+
+      case 'reject-leave':
+        const rejectReason = prompt('Indique el motivo del rechazo:') || 'No autorizada';
+        store.reviewLeave(id, 'REJECTED', rejectReason);
+        Notifier.showToast('Licencia rechazada', 'warning');
+        break;
+
+      case 'delete-leave':
+        if (confirm('¿Confirma cancelar esta solicitud de licencia?')) {
+          store.deleteLeave(id);
+          Notifier.showToast('Solicitud de licencia cancelada', 'info');
+        }
+        break;
+
       case 'open-modal-sign-course':
         const courseId = target.getAttribute('data-course-id');
         const participantId = target.getAttribute('data-participant-id');
@@ -312,6 +335,8 @@ class AppController {
       this.renderNewCourseModal(container);
     } else if (modalId === 'modal-new-epp') {
       this.renderNewEppDeliveryModal(container);
+    } else if (modalId === 'modal-request-leave') {
+      this.renderRequestLeaveModal(container);
     }
   }
 
@@ -993,6 +1018,165 @@ class AppController {
     }
   }
 
+  renderRequestLeaveModal(container) {
+    const session = store.getSession();
+    const isEmployee = session?.role === 'EMPLOYEE';
+    const employees = store.getEmployees();
+
+    let empSelectHtml = '';
+    if (isEmployee) {
+      const currentEmp = store.getEmployeeById(session.employeeId);
+      empSelectHtml = `
+        <input type="hidden" name="employeeId" value="${currentEmp.id}">
+        <p class="text-sm font-semibold text-slate-800">${Sanitizer.escapeHTML(currentEmp.firstName + ' ' + currentEmp.lastName)}</p>
+        <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(currentEmp.role)}</p>
+      `;
+    } else {
+      const options = employees.map(e => 
+        `<option value="${e.id}">${Sanitizer.escapeHTML(e.firstName + ' ' + e.lastName)} (${Sanitizer.escapeHTML(e.role)})</option>`
+      ).join('');
+      empSelectHtml = `
+        <select name="employeeId" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+          ${options}
+        </select>
+      `;
+    }
+
+    const typeOptions = Object.values(LEAVE_TYPES).map(t => 
+      `<option value="${t.code}">${t.icon} ${t.label}</option>`
+    ).join('');
+
+    const today = new Date().toISOString().split('T')[0];
+
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+          <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+            <div>
+              <h3 class="font-bold text-base">Solicitar Licencia / Vacaciones</h3>
+              <p class="text-xs text-slate-300">Gestión de ausentismo y saldo normativo (LCT 20.744)</p>
+            </div>
+            <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+
+          <form id="leave-request-form" class="p-6 space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Colaborador *</label>
+              ${empSelectHtml}
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tipo de Licencia *</label>
+                <select name="type" id="modal-leave-type" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                  ${typeOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Días Solicitados</label>
+                <input type="number" id="modal-leave-days" name="days" value="1" min="1" readonly class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-blue-700">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha Desde *</label>
+                <input type="date" id="modal-leave-start" name="startDate" required value="${today}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha Hasta *</label>
+                <input type="date" id="modal-leave-end" name="endDate" required value="${today}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Motivo / Justificación *</label>
+              <textarea name="reason" rows="2" required placeholder="Detalle el motivo de la ausencia..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
+            </div>
+
+            <div id="leave-cert-container">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Adjuntar Certificado Médico o Comprobante (Opcional)</label>
+              <input type="file" id="modal-leave-file" accept="image/*,application/pdf" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+              <p class="text-[11px] text-slate-400 mt-1">Se redimensiona automáticamente a 1080p y se aloja en la nube.</p>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button type="button" data-action="close-modal" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl font-medium">Cancelar</button>
+              <button type="submit" class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md">Registrar Solicitud</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `);
+
+    const startInp = document.getElementById('modal-leave-start');
+    const endInp = document.getElementById('modal-leave-end');
+    const daysInp = document.getElementById('modal-leave-days');
+
+    const updateDays = () => {
+      const s = startInp?.value;
+      const e = endInp?.value;
+      if (s && e) {
+        const d = LeaveEngine.calculateDaysBetween(s, e);
+        if (daysInp) daysInp.value = d > 0 ? d : 1;
+      }
+    };
+
+    startInp?.addEventListener('change', updateDays);
+    endInp?.addEventListener('change', updateDays);
+
+    const form = document.getElementById('leave-request-form');
+    const fileInput = document.getElementById('modal-leave-file');
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const empId = formData.get('employeeId');
+        const startDate = formData.get('startDate');
+        const endDate = formData.get('endDate');
+
+        // Validar no solapamiento
+        const allLeaves = store.getLeaves();
+        if (LeaveEngine.hasOverlap(allLeaves, empId, startDate, endDate)) {
+          alert('Ya existe una licencia registrada o pendiente que se solapa con estas fechas.');
+          return;
+        }
+
+        let certUrl = null;
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          Notifier.showToast('Subiendo certificado a la nube...', 'info');
+          try {
+            const uploadRes = await ImageUploadService.uploadImage(file, `cert_${empId}_${startDate}`);
+            certUrl = uploadRes.url;
+            Notifier.showToast('Certificado alojado con éxito', 'success');
+          } catch (err) {
+            console.warn('Error subiendo certificado, guardando local:', err);
+            certUrl = await new Promise(r => {
+              const reader = new FileReader();
+              reader.onload = () => r(reader.result);
+              reader.readAsDataURL(file);
+            });
+          }
+        }
+
+        store.requestLeave({
+          employeeId: empId,
+          type: formData.get('type'),
+          startDate,
+          endDate,
+          days: Number(daysInp.value) || 1,
+          reason: formData.get('reason'),
+          certificateUrl: certUrl
+        });
+
+        Notifier.showToast('Solicitud de licencia registrada exitosamente', 'success');
+        this.closeModal();
+      });
+    }
+  }
+
   toggleSidebar() {
     this.isSidebarCollapsed = !this.isSidebarCollapsed;
     localStorage.setItem('talenttrack_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
@@ -1120,6 +1304,9 @@ class AppController {
       case 'epp':
         contentHtml = this.renderEppTab();
         break;
+      case 'leaves':
+        contentHtml = this.renderLeavesTab();
+        break;
       case 'reports':
         contentHtml = this.renderReportsTab();
         break;
@@ -1230,6 +1417,18 @@ class AppController {
         eppBadgeEl.classList.remove('hidden');
       } else {
         eppBadgeEl.classList.add('hidden');
+      }
+    }
+
+    // Badge de Solicitudes Pendientes de Vacaciones/Licencias
+    const pendingLeaves = store.getLeaves().filter(l => l.status === 'PENDING');
+    const leavesBadgeEl = document.getElementById('pending-leaves-badge');
+    if (leavesBadgeEl) {
+      if (pendingLeaves.length > 0) {
+        leavesBadgeEl.textContent = pendingLeaves.length;
+        leavesBadgeEl.classList.remove('hidden');
+      } else {
+        leavesBadgeEl.classList.add('hidden');
       }
     }
 
@@ -1850,6 +2049,178 @@ class AppController {
     `;
   }
 
+  renderLeavesTab() {
+    const leaves = store.getLeaves();
+    const employees = store.getEmployees();
+    const currentYear = new Date().getFullYear();
+
+    const pendingLeaves = leaves.filter(l => l.status === 'PENDING');
+    const approvedLeaves = leaves.filter(l => l.status === 'APPROVED');
+
+    // Tarjetas de saldos de vacaciones por colaborador
+    const employeeBalances = employees.map(emp => {
+      const balance = LeaveEngine.calculateVacationBalance(emp, leaves, currentYear);
+      return { emp, balance };
+    });
+
+    const rowsHtml = leaves.map(leave => {
+      const typeInfo = LEAVE_TYPES[leave.type] || { label: leave.type, icon: '📋' };
+      const statusInfo = LEAVE_STATUS[leave.status] || { label: leave.status, badgeClass: 'bg-slate-100 text-slate-700' };
+
+      return `
+        <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition">
+          <td class="py-3 px-4">
+            <p class="font-bold text-slate-900">${Sanitizer.escapeHTML(leave.employeeName)}</p>
+            <p class="text-[11px] text-slate-500">Solicitado: ${new Date(leave.requestedAt).toLocaleDateString()}</p>
+          </td>
+          <td class="py-3 px-4">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+              ${typeInfo.icon} ${Sanitizer.escapeHTML(typeInfo.label)}
+            </span>
+          </td>
+          <td class="py-3 px-4 text-slate-700 font-medium">
+            ${Sanitizer.escapeHTML(leave.startDate)} al ${Sanitizer.escapeHTML(leave.endDate)}
+          </td>
+          <td class="py-3 px-4">
+            <span class="px-2 py-0.5 rounded-full text-xs font-black bg-slate-100 text-slate-800">
+              ${leave.days} días
+            </span>
+          </td>
+          <td class="py-3 px-4">
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold ${statusInfo.badgeClass}">
+              ${Sanitizer.escapeHTML(statusInfo.label)}
+            </span>
+            ${leave.reviewNotes ? `<p class="text-[10px] text-slate-400 mt-0.5">${Sanitizer.escapeHTML(leave.reviewNotes)}</p>` : ''}
+          </td>
+          <td class="py-3 px-4">
+            ${leave.certificateUrl ? `
+              <button data-action="view-document" data-doc-url="${Sanitizer.sanitizeURL(leave.certificateUrl)}" data-doc-title="Certificado Médico - ${Sanitizer.escapeHTML(leave.employeeName)}" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 rounded-lg text-xs font-bold transition flex items-center gap-1">
+                👁️ Ver Certificado
+              </button>
+            ` : `
+              <span class="text-[11px] text-slate-400">Sin comprobante</span>
+            `}
+          </td>
+          <td class="py-3 px-4 text-right">
+            <div class="flex items-center justify-end gap-1.5">
+              ${leave.status === 'PENDING' ? `
+                <button data-action="approve-leave" data-id="${leave.id}" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition" title="Aprobar Solicitud">
+                  ✓ Aprobar
+                </button>
+                <button data-action="reject-leave" data-id="${leave.id}" class="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition" title="Rechazar">
+                  ✕
+                </button>
+              ` : `
+                <button data-action="delete-leave" data-id="${leave.id}" class="p-1.5 text-slate-400 hover:text-red-600 rounded-lg" title="Eliminar registro">
+                  🗑️
+                </button>
+              `}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="space-y-6">
+        <div class="flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-xl font-bold text-slate-900">Vacaciones, Licencias & Control de Ausentismo</h2>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">LCT 20.744</span>
+            </div>
+            <p class="text-xs text-slate-500">Gestión de saldos de descanso anual según antigüedad, licencias médicas con comprobante adjunto y aprobación digital.</p>
+          </div>
+          <button data-action="open-modal-request-leave" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 transition">
+            ➕ Solicitar / Cargar Licencia
+          </button>
+        </div>
+
+        <!-- KPIs Ausentismo -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl font-bold">⏳</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Solicitudes Pendientes de Aprobación</p>
+              <h3 class="text-2xl font-black text-amber-600">${pendingLeaves.length}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-bold">🏖️</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Licencias Aprobadas en Curso</p>
+              <h3 class="text-2xl font-black text-emerald-600">${approvedLeaves.length}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-bold">📅</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Período Vacacional Activo</p>
+              <h3 class="text-2xl font-black text-blue-700">${currentYear}</h3>
+            </div>
+          </div>
+        </div>
+
+        <!-- Saldos Normativos de Vacaciones por Colaborador -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">Saldos de Vacaciones Ordinarias ${currentYear} (Art. 150 LCT)</h3>
+              <p class="text-xs text-slate-500">Cálculo legal automático de días corridos correspondientes según antigüedad al 31 de diciembre.</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${employeeBalances.map(({ emp, balance }) => `
+              <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <h4 class="font-bold text-sm text-slate-900">${Sanitizer.escapeHTML(emp.firstName + ' ' + emp.lastName)}</h4>
+                    <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(emp.role)}</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Ingreso: ${Sanitizer.escapeHTML(emp.hireDate)} (${balance.yearsOfSeniority} años antig.)</p>
+                  </div>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-black ${balance.remainingDays > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'}">
+                    ${balance.remainingDays} d. rest.
+                  </span>
+                </div>
+                <div class="pt-2 border-t border-slate-200/60 flex justify-between text-xs text-slate-600">
+                  <span>Asignados: <strong>${balance.totalEntitledDays} d.</strong></span>
+                  <span>Gozados: <strong class="text-emerald-700">${balance.takenDays} d.</strong></span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Tabla de Solicitudes y Registro de Licencias -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-sm font-bold text-slate-800">Historial y Solicitudes de Licencias</h3>
+            <span class="text-xs text-slate-500">${leaves.length} registros</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100/75 text-slate-600 border-b border-slate-200">
+                  <th class="py-3 px-4 font-bold">Colaborador</th>
+                  <th class="py-3 px-4 font-bold">Tipo de Licencia</th>
+                  <th class="py-3 px-4 font-bold">Fechas</th>
+                  <th class="py-3 px-4 font-bold">Días</th>
+                  <th class="py-3 px-4 font-bold">Estado</th>
+                  <th class="py-3 px-4 font-bold">Certificado</th>
+                  <th class="py-3 px-4 font-bold text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml || '<tr><td colspan="7" class="p-6 text-center text-slate-400">No hay licencias ni ausencias registradas.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    `;
+  }
+
   renderPortalTab() {
     const session = store.getSession();
     const currentEmp = store.employees.find(e => e.id === session?.employeeId);
@@ -1965,6 +2336,47 @@ class AppController {
               `;
             }).join('') : '<p class="text-xs text-slate-400">Sin registros de entrega de EPP.</p>'}
           </div>
+        </div>
+
+        <!-- Mis Vacaciones y Licencias -->
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="font-bold text-slate-900 text-sm">Mis Vacaciones & Licencias</h3>
+              <p class="text-xs text-slate-500">Saldos anuales y solicitudes registradas</p>
+            </div>
+            <button data-action="open-modal-request-leave" class="text-xs text-blue-600 font-semibold hover:underline">+ Solicitar Licencia</button>
+          </div>
+          ${(() => {
+            const myLeaves = store.getLeavesByEmployee(currentEmp.id);
+            const vacBalance = LeaveEngine.calculateVacationBalance(currentEmp, myLeaves, new Date().getFullYear());
+            return `
+              <div class="p-3 rounded-xl bg-blue-50/70 border border-blue-100 flex justify-between items-center text-xs text-slate-700">
+                <span>Saldo Vacaciones ${vacBalance.year}: <strong>${vacBalance.remainingDays} días</strong> restantes</span>
+                <span class="text-slate-500">Gozados: ${vacBalance.takenDays} de ${vacBalance.totalEntitledDays} d.</span>
+              </div>
+              <div class="space-y-2 mt-2">
+                ${myLeaves.length > 0 ? myLeaves.map(l => {
+                  const t = LEAVE_TYPES[l.type] || { label: l.type, icon: '📋' };
+                  const s = LEAVE_STATUS[l.status] || { label: l.status, badgeClass: 'bg-slate-100 text-slate-700' };
+                  return `
+                    <div class="p-2.5 rounded-xl border border-slate-100 bg-slate-50 flex justify-between items-center text-xs">
+                      <div>
+                        <p class="font-semibold text-slate-800">${t.icon} ${Sanitizer.escapeHTML(t.label)} (${l.days} días)</p>
+                        <p class="text-slate-500 text-[11px]">${Sanitizer.escapeHTML(l.startDate)} al ${Sanitizer.escapeHTML(l.endDate)}</p>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${s.badgeClass}">${Sanitizer.escapeHTML(s.label)}</span>
+                        ${l.status === 'PENDING' ? `
+                          <button data-action="delete-leave" data-id="${l.id}" class="text-slate-400 hover:text-red-600 text-xs" title="Cancelar Solicitud">✕</button>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('') : '<p class="text-xs text-slate-400">Sin solicitudes de licencia registradas.</p>'}
+              </div>
+            `;
+          })()}
         </div>
       </div>
     `;

@@ -10,6 +10,7 @@ import { AuthService } from '../src/utils/authService.js';
 import { EPP_CATALOG } from '../src/state/initialData.js';
 import { EppEngine } from '../src/modules/epp/eppEngine.js';
 import { ImageUploadService } from '../src/utils/imageUploadService.js';
+import { LeaveEngine, LEAVE_TYPES, LEAVE_STATUS } from '../src/modules/leaves/leaveEngine.js';
 
 export async function runUnitTests(harness) {
   const refDate = new Date('2026-11-11T00:00:00.000Z');
@@ -152,4 +153,61 @@ export async function runUnitTests(harness) {
   // Restaurar métodos
   ImageUploadService._uploadToCloudinary = originalCloudinary;
   ImageUploadService._uploadToImgbb = originalImgbb;
+
+  // --- Capa 1: Módulo de Vacaciones y Licencias (LCT 20.744) ---
+  // 1. Escala legal de vacaciones según antigüedad (Art. 150 LCT)
+  const entitLow = LeaveEngine.calculateVacationEntitlement('2024-03-01', 2026);
+  harness.assert(entitLow.yearsOfSeniority === 2 && entitLow.totalEntitledDays === 14, 'Antigüedad < 5 años asigna 14 días corridos');
+
+  const entitMid = LeaveEngine.calculateVacationEntitlement('2019-05-15', 2026);
+  harness.assert(entitMid.yearsOfSeniority === 7 && entitMid.totalEntitledDays === 21, 'Antigüedad 5 a 9 años asigna 21 días corridos');
+
+  const entitHigh = LeaveEngine.calculateVacationEntitlement('2014-01-10', 2026);
+  harness.assert(entitHigh.yearsOfSeniority === 12 && entitHigh.totalEntitledDays === 28, 'Antigüedad 10 a 19 años asigna 28 días corridos');
+
+  const entitMax = LeaveEngine.calculateVacationEntitlement('2001-08-20', 2026);
+  harness.assert(entitMax.yearsOfSeniority === 25 && entitMax.totalEntitledDays === 35, 'Antigüedad >= 20 años asigna 35 días corridos');
+
+  const entitNull = LeaveEngine.calculateVacationEntitlement(null, 2026);
+  harness.assert(entitNull.yearsOfSeniority === 0 && entitNull.totalEntitledDays === 0, 'Fecha de ingreso nula retorna 0 días sin excepciones');
+
+  // 2. Cálculo de días entre fechas (inclusive)
+  harness.assert(LeaveEngine.calculateDaysBetween('2026-12-01', '2026-12-01') === 1, 'Mismo día computa 1 día de licencia');
+  harness.assert(LeaveEngine.calculateDaysBetween('2026-12-01', '2026-12-14') === 14, 'Rango de 14 días corridos calculado correctamente');
+  harness.assert(LeaveEngine.calculateDaysBetween('2026-12-14', '2026-12-01') === 0, 'Rango con fechas invertidas retorna 0');
+  harness.assert(LeaveEngine.calculateDaysBetween(null, '2026-12-01') === 0, 'Fechas nulas retornan 0');
+
+  // 3. Balance de vacaciones
+  const mockEmpVac = { id: 'emp_vac_test', hireDate: '2019-01-01' }; // 7 años -> 21 días
+  const mockLeaves = [
+    { employeeId: 'emp_vac_test', type: 'VACATION', status: 'APPROVED', startDate: '2026-01-10', days: 7 },
+    { employeeId: 'emp_vac_test', type: 'VACATION', status: 'PENDING', startDate: '2026-07-01', days: 5 }, // no debe restar
+    { employeeId: 'emp_vac_test', type: 'MEDICAL', status: 'APPROVED', startDate: '2026-03-01', days: 3 } // no resta vacaciones
+  ];
+  const balance = LeaveEngine.calculateVacationBalance(mockEmpVac, mockLeaves, 2026);
+  harness.assert(balance.totalEntitledDays === 21, 'Balance: Días asignados correspondientes a 7 años');
+  harness.assert(balance.takenDays === 7, 'Balance: Solo computa días tomados de vacaciones aprobadas');
+  harness.assert(balance.remainingDays === 14, 'Balance: Saldo restante exacto (21 - 7 = 14)');
+
+  // 4. Detección de solapamiento de licencias
+  const existingActive = [
+    { id: 'lev_1', employeeId: 'emp_vac_test', startDate: '2026-07-10', endDate: '2026-07-20', status: 'APPROVED' },
+    { id: 'lev_2', employeeId: 'emp_vac_test', startDate: '2026-08-01', endDate: '2026-08-05', status: 'REJECTED' }
+  ];
+
+  // Caso A: Solapamiento exacto
+  harness.assert(LeaveEngine.hasOverlap(existingActive, 'emp_vac_test', '2026-07-10', '2026-07-20') === true, 'Detecta solapamiento en fechas idénticas');
+  // Caso B: Solapamiento parcial al inicio
+  harness.assert(LeaveEngine.hasOverlap(existingActive, 'emp_vac_test', '2026-07-05', '2026-07-15') === true, 'Detecta solapamiento parcial al inicio');
+  // Caso C: Solapamiento parcial al final
+  harness.assert(LeaveEngine.hasOverlap(existingActive, 'emp_vac_test', '2026-07-15', '2026-07-25') === true, 'Detecta solapamiento parcial al final');
+  // Caso D: Sin solapamiento
+  harness.assert(LeaveEngine.hasOverlap(existingActive, 'emp_vac_test', '2026-07-21', '2026-07-30') === false, 'Permite rango contiguo posterior sin solapamiento');
+  // Caso E: Solapamiento con licencia rechazada -> debe permitirse
+  harness.assert(LeaveEngine.hasOverlap(existingActive, 'emp_vac_test', '2026-08-01', '2026-08-05') === false, 'Permite fechas de licencias previamente rechazadas');
+
+  // 5. Catálogos normativos y tipos de licencia
+  harness.assert(LEAVE_TYPES.VACATION.isPaid === true, 'Vacaciones declaradas con goce de haberes');
+  harness.assert(LEAVE_TYPES.MEDICAL.requiresCertificate === true, 'Licencia médica exige certificado obligatorio');
+  harness.assert(LEAVE_STATUS.APPROVED.code === 'APPROVED', 'Estado APPROVED normativo disponible');
 }

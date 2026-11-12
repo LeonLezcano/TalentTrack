@@ -436,3 +436,38 @@ export const INITIAL_EPP_DELIVERIES = [
     deliveredBy: 'Ing. Claudio Mendoza (Seguridad e Higiene)'
   }
 ];
+
+export const INITIAL_LEAVES = [
+  {
+    id: 'leave_cg_vacation_01',
+    companyId: 'comp_alimentos',
+    employeeId: 'emp_carlos_gomez',
+    employeeName: 'Carlos Alberto Gómez',
+    type: 'VACATION',
+    startDate: '2026-01-12',
+    endDate: '2026-01-25',
+    days: 14,
+    reason: 'Vacaciones de verano período ordinario',
+    status: 'APPROVED',
+    requestedAt: '2025-12-01T10:00:00.000Z',
+    reviewedBy: 'Lic. Paula Santillán',
+    reviewedAt: '2025-12-03T11:30:00.000Z',
+    certificateUrl: null
+  },
+  {
+    id: 'leave_ml_medical_01',
+    companyId: 'comp_alimentos',
+    employeeId: 'emp_mariana_lopez',
+    employeeName: 'Mariana Soledad López',
+    type: 'MEDICAL',
+    startDate: '2026-11-10',
+    endDate: '2026-11-13',
+    days: 4,
+    reason: 'Cuadro de gastroenteritis aguda con reposo prescripto',
+    status: 'PENDING',
+    requestedAt: '2026-11-10T08:30:00.000Z',
+    reviewedBy: null,
+    reviewedAt: null,
+    certificateUrl: 'https://res.cloudinary.com/ebfnvo2l/image/upload/v1794492372/dmhka62zkbs34isprluv.png'
+  }
+];

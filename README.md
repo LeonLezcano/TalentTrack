@@ -1,8 +1,8 @@
-# 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP & Capacitaciones
+# 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP, Vacaciones & Capacitaciones
 
-> **Versión:** `v1.0.07` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
+> **Versión:** `v1.0.10` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 144/144 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
-**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
+**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, gestionar el ciclo completo de vacaciones y licencias médicas (LCT 20.744) con cálculo legal según antigüedad y adjunto de certificados en la nube, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
 
 ---
 
@@ -31,7 +31,18 @@
 - **Semáforo de Recambio Periódico:** Control de vida útil y fechas de recambio con alertas integradas al semáforo general y botón directo de notificación por WhatsApp.
 - **Exportación Oficial Planilla SRT 299/11:** Descarga instantánea en formato CSV con BOM UTF-8 y hash forense de recepción, lista para auditorías de ART, Ministerio de Trabajo o inspectores de la SRT.
 
-### 3. 🗂️ Legajos 360°, Requisitos de Puesto & Adjuntos Reales
+### 3. 🏖️ Módulo de Vacaciones, Licencias & Ausentismo (LCT 20.744)
+- **Cálculo Legal de Vacaciones (Art. 150 LCT):** Cómputo normativo exacto de días corridos correspondientes según antigüedad acumulada al 31 de diciembre del año en curso:
+  - Antigüedad menor a 5 años: **14 días corridos**.
+  - Antigüedad de 5 a 10 años: **21 días corridos**.
+  - Antigüedad de 10 a 20 años: **28 días corridos**.
+  - Antigüedad mayor a 20 años: **35 días corridos**.
+- **Gestión Integral de Licencias:** Catálogo normativo con soporte para Vacaciones Ordinarias, Licencia Médica / Enfermedad Inculpable (Art. 208 LCT), Maternidad / Paternidad, Duelo Familiar, Examen de Estudio y Licencia Sin Goce de Sueldo.
+- **Adjunto de Certificados Médicos en la Nube:** Subida directa de certificados médicos con redimensionamiento automático a 1080p y alojamiento con failover dual (Cloudinary principal / ImgBB secundario / respaldo local offline).
+- **Prevención de Solapamiento:** Motor de validación que bloquea solicitudes duplicadas o intersectadas con licencias activas o pendientes.
+- **Flujo de Aprobación RBAC:** Los colaboradores solicitan ausencias desde su portal y los administradores de RRHH aprueban o rechazan con motivo formal, descontando los días automáticamente del saldo de vacaciones.
+
+### 4. 🗂️ Legajos 360°, Requisitos de Puesto & Adjuntos Reales
 - **Estructura Multi-Tenant:** Aislamiento total de datos por empresa cliente o sede operativa.
 - **Ficha Integral de Empleado:** Datos personales, contacto (teléfono con formateo para WhatsApp, email), puesto, área/departamento, fecha de ingreso y estado activo.
 - **Requisitos de Puesto Configurables:** Cada empresa define qué capacitaciones son obligatorias según el puesto (ej. Chofer exige Manejo Defensivo; Operaria de Alimentos exige BPM) y el sistema calcula en tiempo real la tasa de cumplimiento del legajo.
@@ -129,12 +140,12 @@ pnpm test
 
 | Capa | Descripción | Tests | Estado |
 |---|---|:---:|:---:|
-| **Capa 1** | Unitarias, Fuzzing caótico, algoritmos de semáforo y hashing | 20 | PASS |
-| **Capa 2** | Integración, aislamiento multi-empresa y purga anti-fantasmas | 12 | PASS |
-| **Capa 3** | Componentes, Talent Hunter y matriz de puestos por rol | 10 | PASS |
-| **Capa 4** | Seguridad XSS en DOM sinks, cabeceras en `firebase.json` y escaneo de secretos | 9 | PASS |
-| **Capa 5** | End-to-End: Alta -> Carnet -> Alerta -> Curso -> Firma -> CSV | 27 | PASS |
-| **Total** | **Suite Completa Automatizada** | **78** | **100% PASS** |
+| **Capa 1** | Unitarias, Fuzzing caótico, algoritmos de semáforo, hashing, EPP y LeaveEngine LCT 20.744 | 42 | PASS |
+| **Capa 2** | Integración, aislamiento multi-empresa, ciclo EPP y gestión de licencias | 36 | PASS |
+| **Capa 3** | Componentes, Talent Hunter, matriz de puestos y actas oficiales SRT 299/11 | 15 | PASS |
+| **Capa 4** | Seguridad XSS en DOM sinks, cabeceras en `firebase.json` y escaneo de secretos | 12 | PASS |
+| **Capa 5** | End-to-End: Alta -> Carnet -> Alerta -> Curso -> Firma -> SRT 299 -> Vacaciones LCT | 39 | PASS |
+| **Total** | **Suite Completa Automatizada** | **144** | **100% PASS** |
 
 ---
 

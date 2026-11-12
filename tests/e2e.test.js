@@ -7,6 +7,7 @@ import { AuthService } from '../src/utils/authService.js';
 import { ExpirationEngine } from '../src/modules/compliance/expirationEngine.js';
 import { Exporter } from '../src/modules/reports/exporter.js';
 import { DigitalSignaturePad } from '../src/utils/signature.js';
+import { LeaveEngine } from '../src/modules/leaves/leaveEngine.js';
 
 export async function runE2ETests(harness) {
   store.restoreDemoData();
@@ -123,4 +124,41 @@ export async function runE2ETests(harness) {
   const srtCsv = Exporter.exportSrt299Planilla(driverDels, { name: 'TransAndina Logística', cuit: '30-68954120-7' }, 'srt_e2e.csv');
   harness.assert(srtCsv.startsWith('\uFEFF'), 'E2E Paso 11: Planilla SRT 299/11 contiene BOM UTF-8');
   harness.assert(srtCsv.includes('35.998.112') && srtCsv.includes(eppSigHash), 'E2E Paso 11: Planilla SRT contiene DNI y hash de firma del chofer');
+
+  // 12. Flujo Completo de Ausentismo y Vacaciones (LCT 20.744)
+  // Colaborador solicita 7 días de vacaciones
+  const vacReq = store.requestLeave({
+    employeeId: newDriver.id,
+    type: 'VACATION',
+    startDate: '2026-12-01',
+    endDate: '2026-12-07',
+    reason: 'Descanso anual'
+  });
+  harness.assert(vacReq && (vacReq.id.startsWith('leave_') || vacReq.id.startsWith('lev_')), 'E2E Paso 12: Chofer solicita vacaciones desde su portal');
+  harness.assert(vacReq.days === 7, 'E2E Paso 12: Duración calculada en 7 días');
+
+  // Admin aprueba la solicitud
+  store.setSession({
+    userId: 'usr_admin_transandina',
+    role: 'HR_ADMIN',
+    companyId: 'comp_logistica',
+    token: 'ADMIN_TOKEN'
+  });
+
+  const reviewApprove = store.reviewLeave(vacReq.id, 'APPROVED', { notes: 'Aprobado formalmente por Gerencia' });
+  harness.assert(reviewApprove && reviewApprove.status === 'APPROVED', 'E2E Paso 12: RRHH aprueba las vacaciones');
+
+  // Chofer reingresa y verifica descuento en su saldo
+  store.setSession({
+    userId: newDriver.id,
+    employeeId: newDriver.id,
+    role: 'EMPLOYEE',
+    companyId: 'comp_logistica',
+    token: 'EMP_TOKEN'
+  });
+
+  const allDriverLeaves = store.getLeaves();
+  const balanceChofer = LeaveEngine.calculateVacationBalance(newDriver, allDriverLeaves, 2026);
+  harness.assert(balanceChofer.takenDays === 7, 'E2E Paso 12: Saldo refleja 7 días tomados');
+  harness.assert(balanceChofer.remainingDays === balanceChofer.totalEntitledDays - 7, 'E2E Paso 12: Saldo remanente descontado con exactitud');
 }
