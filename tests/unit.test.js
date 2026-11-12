@@ -9,6 +9,7 @@ import { rateLimiter } from '../src/utils/rateLimiter.js';
 import { AuthService } from '../src/utils/authService.js';
 import { EPP_CATALOG } from '../src/state/initialData.js';
 import { EppEngine } from '../src/modules/epp/eppEngine.js';
+import { ImageUploadService } from '../src/utils/imageUploadService.js';
 
 export async function runUnitTests(harness) {
   const refDate = new Date('2026-11-11T00:00:00.000Z');
@@ -131,4 +132,24 @@ export async function runUnitTests(harness) {
   const eppAlerts = EppEngine.scanEppAlerts(mockExpiredDeliveries, [mockEmp]);
   harness.assert(eppAlerts.length >= 1, 'scanEppAlerts detecta recambio vencido para semáforo');
   harness.assert(eppAlerts[0].isEpp === true, 'Alerta etiquetada correctamente como isEpp');
+
+  // --- Capa 1: ImageUploadService (Failover Engine & Resiliencia) ---
+  harness.assert(ImageUploadService.config.cloudinary.cloudName === 'ebfnvo2l', 'Cloudinary configurado como proveedor principal');
+  harness.assert(ImageUploadService.config.imgbb.apiKey === '38bd25c1dbba4f07fbc3e87f8f43f382', 'ImgBB configurado como proveedor de fallback');
+
+  // Fallback offline resiliente cuando ambos proveedores remotos simulan falla
+  const originalCloudinary = ImageUploadService._uploadToCloudinary;
+  const originalImgbb = ImageUploadService._uploadToImgbb;
+
+  ImageUploadService._uploadToCloudinary = async () => { throw new Error('Cloudinary simulated offline'); };
+  ImageUploadService._uploadToImgbb = async () => { throw new Error('ImgBB simulated offline'); };
+
+  const offlineRes = await ImageUploadService.uploadImage('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'test_carnet');
+  harness.assert(offlineRes.success === true, 'ImageUploadService no bloquea la app si fallan proveedores');
+  harness.assert(offlineRes.provider === 'local', 'Conmuta automáticamente a almacenamiento local resiliente');
+  harness.assert(offlineRes.isLocalFallback === true, 'Flag isLocalFallback activo ante contingencia');
+
+  // Restaurar métodos
+  ImageUploadService._uploadToCloudinary = originalCloudinary;
+  ImageUploadService._uploadToImgbb = originalImgbb;
 }
