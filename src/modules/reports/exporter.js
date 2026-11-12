@@ -153,4 +153,51 @@ export class Exporter {
     const csvContent = [headers.map(this.escapeCell).join(','), ...rows].join('\r\n');
     return this.downloadCSV(csvContent, targetFilename);
   }
+
+  /**
+   * Generates official EPP delivery record conforming to Argentine SRT Resolution 299/11.
+   * @param {Array<Object>} deliveries 
+   * @param {Object} [company=null]
+   * @param {string} [filename=null]
+   * @returns {string}
+   */
+  static exportSrt299Planilla(deliveries = [], company = null, filename = null) {
+    const targetFilename = filename || `constancia_entrega_epp_srt299_${Date.now()}.csv`;
+    const headers = [
+      'Razón Social',
+      'CUIT',
+      'Colaborador',
+      'DNI',
+      'Elemento de Protección Personal (EPP)',
+      'Tipo / Marca / Modelo',
+      'Certificación IRAM / Sello S',
+      'Cantidad',
+      'Fecha de Entrega',
+      'Fecha Vencimiento / Recambio',
+      'Capacitado en Uso',
+      'Firmado Digitalmente',
+      'Hash Criptográfico SHA-256',
+      'Responsable de Entrega'
+    ];
+
+    const rows = deliveries.map(del => [
+      company?.name || 'Empresa',
+      company?.cuit || '',
+      del.employeeName,
+      del.dni || '',
+      del.eppName,
+      del.brandModel || 'Estándar',
+      del.standard || 'Sello S / IRAM',
+      String(del.quantity || 1),
+      del.deliveryDate,
+      del.expirationDate || 'N/A',
+      del.trainedInUse ? 'SÍ (CAPACITADO)' : 'NO',
+      del.signature ? 'SÍ (CONFORME)' : 'PENDIENTE',
+      del.signatureHash || 'SIN FIRMA',
+      del.deliveredBy || 'Higiene y Seguridad'
+    ].map(this.escapeCell).join(','));
+
+    const csvContent = [headers.map(this.escapeCell).join(','), ...rows].join('\r\n');
+    return this.downloadCSV(csvContent, targetFilename);
+  }
 }

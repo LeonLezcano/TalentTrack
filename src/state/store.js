@@ -4,7 +4,7 @@
  * and position requirements engine.
  */
 
-import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES } from './initialData.js';
+import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES, INITIAL_EPP_DELIVERIES, EPP_CATALOG } from './initialData.js';
 
 const STORAGE_KEY_PREFIX = 'talenttrack_vault_';
 const PURGE_FLAG_KEY = 'mipcontrol_demo_purged';
@@ -16,6 +16,7 @@ class Store {
     this.users = [];
     this.employees = [];
     this.courses = [];
+    this.eppDeliveries = [];
     this.activeSession = null;
     this.listeners = new Set();
     this.isInitialized = false;
@@ -32,16 +33,19 @@ class Store {
       this.users = this._getStorageJSON('users') || [];
       this.employees = this._getStorageJSON('employees') || [];
       this.courses = this._getStorageJSON('courses') || [];
+      this.eppDeliveries = this._getStorageJSON('eppDeliveries') || [];
     } else {
       const storedCompanies = this._getStorageJSON('companies');
       const storedUsers = this._getStorageJSON('users');
       const storedEmployees = this._getStorageJSON('employees');
       const storedCourses = this._getStorageJSON('courses');
+      const storedEpp = this._getStorageJSON('eppDeliveries');
 
       this.companies = (storedCompanies && storedCompanies.length > 0) ? storedCompanies : JSON.parse(JSON.stringify(INITIAL_COMPANIES));
       this.users = (storedUsers && storedUsers.length > 0) ? storedUsers : JSON.parse(JSON.stringify(INITIAL_USERS));
       this.employees = (storedEmployees && storedEmployees.length > 0) ? storedEmployees : JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
       this.courses = (storedCourses && storedCourses.length > 0) ? storedCourses : JSON.parse(JSON.stringify(INITIAL_COURSES));
+      this.eppDeliveries = (storedEpp && storedEpp.length > 0) ? storedEpp : JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
 
       this._saveAll();
     }
@@ -370,8 +374,9 @@ class Store {
   // --- Requisitos por Puesto Configurables (Desacople de Hardcode) ---
   getPositionRequirements(roleName) {
     const comp = this.getCurrentCompany();
-    if (!comp || !comp.positionRequirements) return null;
-    return comp.positionRequirements.find(r => r.role.toLowerCase() === (roleName || '').toLowerCase()) || null;
+    if (!comp || !comp.positionRequirements) return roleName ? null : [];
+    if (!roleName) return comp.positionRequirements;
+    return comp.positionRequirements.find(r => r.role.toLowerCase() === roleName.toLowerCase()) || null;
   }
 
   setPositionRequirements(roleName, { mandatoryCredentials = [], mandatoryTrainings = [] }) {
@@ -399,6 +404,7 @@ class Store {
     this.users = [];
     this.employees = [];
     this.courses = [];
+    this.eppDeliveries = [];
     this.activeSession = null;
 
     this._setStorageItem(PURGE_FLAG_KEY, 'true');
@@ -412,6 +418,7 @@ class Store {
     this.users = JSON.parse(JSON.stringify(INITIAL_USERS));
     this.employees = JSON.parse(JSON.stringify(INITIAL_EMPLOYEES));
     this.courses = JSON.parse(JSON.stringify(INITIAL_COURSES));
+    this.eppDeliveries = JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
 
     // Sesión por defecto en demo para pruebas inmediatas
     this.activeSession = {
@@ -428,12 +435,95 @@ class Store {
     this.notify();
   }
 
+  // --- Módulo de EPP & Dotación (Res. SRT 299/11) ---
+  getEppCatalog() {
+    return EPP_CATALOG;
+  }
+
+  getEppDeliveries() {
+    if (!this.isAuthenticated()) return [];
+    const companyDeliveries = this.eppDeliveries.filter(d => d.companyId === this.activeSession.companyId);
+
+    if (this.activeSession.role === 'EMPLOYEE') {
+      return companyDeliveries.filter(d => d.employeeId === this.activeSession.employeeId);
+    }
+    return companyDeliveries;
+  }
+
+  getEppDeliveriesByEmployee(empId) {
+    if (!this.isAuthenticated()) return [];
+    if (this.activeSession.role === 'EMPLOYEE' && this.activeSession.employeeId !== empId) {
+      return [];
+    }
+    return this.eppDeliveries.filter(d => d.companyId === this.activeSession.companyId && d.employeeId === empId);
+  }
+
+  addEppDelivery(deliveryData) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('No autorizado para registrar entregas de EPP.');
+    }
+
+    const emp = this.getEmployeeById(deliveryData.employeeId);
+    if (!emp) throw new Error('Colaborador no encontrado');
+
+    const eppItem = EPP_CATALOG[deliveryData.eppId] || { name: deliveryData.eppName || 'EPP Personalizado', standard: 'Sello S / IRAM', renewalDays: 180 };
+    const deliveryDate = deliveryData.deliveryDate || new Date().toISOString().split('T')[0];
+
+    let expirationDate = deliveryData.expirationDate;
+    if (!expirationDate) {
+      const d = new Date(deliveryDate);
+      d.setDate(d.getDate() + (eppItem.renewalDays || 180));
+      expirationDate = d.toISOString().split('T')[0];
+    }
+
+    const id = deliveryData.id || `epp_del_${Date.now()}`;
+    const newDelivery = {
+      id,
+      companyId: this.activeSession.companyId,
+      employeeId: emp.id,
+      employeeName: `${emp.firstName} ${emp.lastName}`,
+      dni: emp.dni,
+      eppId: deliveryData.eppId,
+      eppName: deliveryData.eppName || eppItem.name,
+      brandModel: deliveryData.brandModel || 'Estándar Certificado',
+      standard: deliveryData.standard || eppItem.standard,
+      quantity: Number(deliveryData.quantity) || 1,
+      deliveryDate,
+      expirationDate,
+      trainedInUse: deliveryData.trainedInUse !== false,
+      signature: deliveryData.signature || null,
+      signatureHash: deliveryData.signatureHash || null,
+      signedAt: deliveryData.signedAt || new Date().toISOString(),
+      deliveredBy: deliveryData.deliveredBy || this.activeSession.name
+    };
+
+    this.eppDeliveries.push(newDelivery);
+    this._saveAll();
+    this.notify();
+    return newDelivery;
+  }
+
+  deleteEppDelivery(deliveryId) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('No autorizado para eliminar registros de EPP.');
+    }
+
+    const index = this.eppDeliveries.findIndex(d => d.id === deliveryId && d.companyId === this.activeSession.companyId);
+    if (index === -1) return false;
+
+    this.eppDeliveries.splice(index, 1);
+    this._saveAll();
+    this.notify();
+    return true;
+  }
+
   // --- Storage Internals ---
   _saveAll() {
     this._setStorageJSON('companies', this.companies);
     this._setStorageJSON('users', this.users);
     this._setStorageJSON('employees', this.employees);
     this._setStorageJSON('courses', this.courses);
+    this._setStorageJSON('eppDeliveries', this.eppDeliveries);
     if (this.activeSession) {
       this._setStorageJSON('session', this.activeSession);
     }

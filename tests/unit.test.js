@@ -7,6 +7,8 @@ import { Sanitizer } from '../src/utils/sanitizer.js';
 import { DigitalSignaturePad } from '../src/utils/signature.js';
 import { rateLimiter } from '../src/utils/rateLimiter.js';
 import { AuthService } from '../src/utils/authService.js';
+import { EPP_CATALOG } from '../src/state/initialData.js';
+import { EppEngine } from '../src/modules/epp/eppEngine.js';
 
 export async function runUnitTests(harness) {
   const refDate = new Date('2026-11-11T00:00:00.000Z');
@@ -95,4 +97,38 @@ export async function runUnitTests(harness) {
     }
   }
   harness.assert(fuzzErrors === 0, 'Fuzzing caótico: 0 excepciones ante payloads extremos');
+
+  // --- Capa 1: Módulo EPP (Res. SRT 299/11) ---
+  harness.assert(EPP_CATALOG.CALZADO_SEGURIDAD && EPP_CATALOG.CALZADO_SEGURIDAD.standard.includes('Sello S'), 'Catálogo EPP incluye Calzado con Sello S oficial');
+  harness.assert(EPP_CATALOG.CHALECO_REFLECTIVO.standard.includes('IRAM 3859'), 'Catálogo EPP incluye Chaleco bajo norma IRAM 3859');
+  harness.assert(EPP_CATALOG.CALZADO_SEGURIDAD.renewalDays === 180, 'Calzado exige recambio semestral (180 días)');
+
+  const mockEmp = { id: 'test_emp', role: 'Chofer' };
+  const mockReqs = [{ role: 'Chofer', mandatoryEpp: ['CALZADO_SEGURIDAD', 'CHALECO_REFLECTIVO'] }];
+  
+  // Caso 1: Sin entregas (0% de cobertura)
+  const evalEmpty = EppEngine.evaluateEmployeeEppStatus(mockEmp, [], mockReqs);
+  harness.assert(evalEmpty.complianceRate === 0 && evalEmpty.isCompliant === false, 'Sin entregas: 0% cobertura y no conforme');
+  harness.assert(evalEmpty.missing.length === 2, 'Detecta 2 EPP obligatorios faltantes');
+
+  // Caso 2: Entrega completa y vigente (100% de cobertura)
+  const mockDeliveries = [
+    { employeeId: 'test_emp', eppId: 'CALZADO_SEGURIDAD', deliveryDate: '2026-08-01', expirationDate: '2027-02-01' },
+    { employeeId: 'test_emp', eppId: 'CHALECO_REFLECTIVO', deliveryDate: '2026-08-01', expirationDate: '2027-08-01' }
+  ];
+  const evalFull = EppEngine.evaluateEmployeeEppStatus(mockEmp, mockDeliveries, mockReqs);
+  harness.assert(evalFull.complianceRate === 100 && evalFull.isCompliant === true, 'Con entregas vigentes: 100% cobertura y conforme');
+
+  // Caso 3: Entrega con calzado vencido
+  const mockExpiredDeliveries = [
+    { employeeId: 'test_emp', eppId: 'CALZADO_SEGURIDAD', deliveryDate: '2026-01-01', expirationDate: '2026-07-01' },
+    { employeeId: 'test_emp', eppId: 'CHALECO_REFLECTIVO', deliveryDate: '2026-08-01', expirationDate: '2027-08-01' }
+  ];
+  const evalExp = EppEngine.evaluateEmployeeEppStatus(mockEmp, mockExpiredDeliveries, mockReqs);
+  harness.assert(evalExp.expired.length === 1 && evalExp.isCompliant === false, 'Detecta EPP vencido y marca no conformidad');
+
+  // Escaneo de alertas EPP para el semáforo
+  const eppAlerts = EppEngine.scanEppAlerts(mockExpiredDeliveries, [mockEmp]);
+  harness.assert(eppAlerts.length >= 1, 'scanEppAlerts detecta recambio vencido para semáforo');
+  harness.assert(eppAlerts[0].isEpp === true, 'Alerta etiquetada correctamente como isEpp');
 }

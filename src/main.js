@@ -11,6 +11,7 @@ import { ExpirationEngine, CREDENTIAL_TYPES, STATUS_LEVELS } from './modules/com
 import { AlertDispatcher } from './modules/compliance/alertDispatcher.js';
 import { SkillsEngine, STANDARD_SKILLS, SKILL_LEVELS } from './modules/skills/skillsEngine.js';
 import { TrainingEngine, TRAINING_CATEGORIES } from './modules/training/trainingEngine.js';
+import { EppEngine } from './modules/epp/eppEngine.js';
 import { DigitalSignaturePad } from './utils/signature.js';
 import { Exporter } from './modules/reports/exporter.js';
 import { Notifier } from './utils/notifier.js';
@@ -107,6 +108,24 @@ class AppController {
         this.openModal('modal-new-course');
         break;
 
+      case 'open-modal-new-epp':
+        this.openModal('modal-new-epp');
+        break;
+
+      case 'export-srt299-csv':
+        const eppDels = store.getEppDeliveries();
+        const currentComp = store.getCurrentCompany();
+        Exporter.exportSrt299Planilla(eppDels, currentComp);
+        Notifier.showToast('Planilla Oficial SRT 299/11 descargada en CSV', 'success');
+        break;
+
+      case 'delete-epp-delivery':
+        if (confirm('¿Confirma anular este registro de entrega de EPP?')) {
+          store.deleteEppDelivery(id);
+          Notifier.showToast('Registro de entrega de EPP eliminado', 'warning');
+        }
+        break;
+
       case 'open-modal-sign-course':
         const courseId = target.getAttribute('data-course-id');
         const participantId = target.getAttribute('data-participant-id');
@@ -174,12 +193,23 @@ class AppController {
   dispatchWhatsApp(empId, credId) {
     const emp = store.getEmployeeById(empId);
     if (!emp) return;
-    const cred = (emp.credentials || []).find(c => c.id === credId);
-    if (!cred) return;
+    let cred = (emp.credentials || []).find(c => c.id === credId);
+    let label = cred ? (cred.customLabel || cred.type) : null;
+    let expDate = cred ? cred.expirationDate : null;
 
-    const evalRes = ExpirationEngine.evaluateDate(cred.expirationDate);
+    if (!cred) {
+      const eppDel = store.getEppDeliveries().find(d => d.id === credId);
+      if (eppDel) {
+        label = `Recambio EPP: ${eppDel.eppName}`;
+        expDate = eppDel.expirationDate;
+      }
+    }
+
+    if (!expDate) return;
+
+    const evalRes = ExpirationEngine.evaluateDate(expDate);
     const alertObj = {
-      credentialLabel: cred.customLabel || cred.type,
+      credentialLabel: label || 'Habilitación / EPP',
       formattedDate: evalRes.formattedDate,
       daysRemaining: evalRes.daysRemaining
     };
@@ -239,6 +269,8 @@ class AppController {
       this.renderAddCredModal(container);
     } else if (modalId === 'modal-new-course') {
       this.renderNewCourseModal(container);
+    } else if (modalId === 'modal-new-epp') {
+      this.renderNewEppDeliveryModal(container);
     }
   }
 
@@ -732,6 +764,178 @@ class AppController {
     }
   }
 
+  renderNewEppDeliveryModal(container) {
+    const employees = store.getEmployees();
+    const catalog = store.getEppCatalog();
+    const today = new Date().toISOString().split('T')[0];
+
+    const empOptions = employees.map(e => `
+      <option value="${e.id}">${Sanitizer.escapeHTML(e.firstName + ' ' + e.lastName)} (${Sanitizer.escapeHTML(e.role)})</option>
+    `).join('');
+
+    const catalogEntries = Object.values(catalog);
+    const eppOptions = catalogEntries.map(item => `
+      <option value="${item.id}" data-standard="${Sanitizer.escapeHTML(item.standard)}" data-days="${item.renewalDays}">
+        ${item.icon} ${Sanitizer.escapeHTML(item.name)} — ${Sanitizer.escapeHTML(item.standard)}
+      </option>
+    `).join('');
+
+    const defaultEpp = catalogEntries[0] || {};
+    const defaultRenewal = new Date();
+    defaultRenewal.setDate(defaultRenewal.getDate() + (defaultEpp.renewalDays || 180));
+    const defaultExpDate = defaultRenewal.toISOString().split('T')[0];
+
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+          <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+            <div>
+              <h3 class="font-bold text-base">🦺 Nueva Entrega de EPP (Res. SRT 299/11)</h3>
+              <p class="text-xs text-slate-300">Constancia digital con validez para auditorías de Higiene y Seguridad</p>
+            </div>
+            <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+
+          <form id="epp-delivery-form" class="p-6 overflow-y-auto space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Colaborador Destinatario *</label>
+              <select name="employeeId" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                ${empOptions}
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Elemento de Protección Personal (Catálogo Normado) *</label>
+              <select id="modal-epp-selector" name="eppId" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                ${eppOptions}
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Marca / Modelo / Talle *</label>
+                <input type="text" name="brandModel" required placeholder="Ej: Voran Energy Sport T42" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Certificación Técnica *</label>
+                <input type="text" id="modal-epp-standard" name="standard" value="${Sanitizer.escapeHTML(defaultEpp.standard || '')}" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-slate-50">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Cantidad *</label>
+                <input type="number" name="quantity" min="1" max="50" value="1" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha Entrega *</label>
+                <input type="date" id="modal-epp-date" name="deliveryDate" value="${today}" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Próximo Recambio *</label>
+                <input type="date" id="modal-epp-expiration" name="expirationDate" value="${defaultExpDate}" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 font-semibold text-blue-700">
+              </div>
+            </div>
+
+            <div class="p-3 bg-amber-50 rounded-xl border border-amber-200">
+              <label class="flex items-start gap-2 cursor-pointer text-xs text-amber-900">
+                <input type="checkbox" name="trainedInUse" checked class="mt-0.5 rounded text-blue-600 focus:ring-blue-500">
+                <span><strong>Capacitación recibida (Art. 3 Res. SRT 299/11):</strong> El trabajador declara haber sido instruido sobre el uso correcto, cuidado y conservación de este EPP.</span>
+              </label>
+            </div>
+
+            <!-- Firma Táctil en Pantalla -->
+            <div class="space-y-1.5">
+              <label class="block text-xs font-bold text-slate-800">Firma Táctil de Recepción del Trabajador *</label>
+              <div class="border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 overflow-hidden">
+                <canvas id="signature-canvas" width="460" height="150" class="signature-canvas w-full h-[150px]"></canvas>
+              </div>
+              <div class="flex justify-between items-center pt-1 text-xs">
+                <button type="button" data-action="clear-signature" class="text-slate-500 hover:text-slate-800 font-medium">
+                  🔄 Limpiar Firma
+                </button>
+                <span class="text-slate-400 text-[11px]">Se estampará hash SHA-256</span>
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-3 border-t border-slate-200">
+              <button type="button" data-action="close-modal" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl font-medium">Cancelar</button>
+              <button type="submit" class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md">Registrar y Sellar Entrega</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `);
+
+    // Inicializar Canvas de firma
+    const canvas = document.getElementById('signature-canvas');
+    if (canvas) {
+      this.signaturePadInstance = new DigitalSignaturePad(canvas);
+    }
+
+    // Actualización dinámica de estándar y fecha de recambio
+    const eppSelect = document.getElementById('modal-epp-selector');
+    const stdInput = document.getElementById('modal-epp-standard');
+    const expInput = document.getElementById('modal-epp-expiration');
+    const dateInput = document.getElementById('modal-epp-date');
+
+    if (eppSelect && stdInput && expInput && dateInput) {
+      eppSelect.addEventListener('change', () => {
+        const opt = eppSelect.selectedOptions[0];
+        if (opt) {
+          const std = opt.getAttribute('data-standard');
+          const days = Number(opt.getAttribute('data-days')) || 180;
+          stdInput.value = std;
+
+          const base = new Date(dateInput.value || today);
+          base.setDate(base.getDate() + days);
+          expInput.value = base.toISOString().split('T')[0];
+        }
+      });
+    }
+
+    const form = document.getElementById('epp-delivery-form');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (this.signaturePadInstance && this.signaturePadInstance.isEmpty()) {
+          alert('Por favor solicite la firma táctil del trabajador antes de confirmar.');
+          return;
+        }
+
+        const formData = new FormData(form);
+        const empId = formData.get('employeeId');
+        const emp = store.getEmployeeById(empId);
+        const empName = emp ? `${emp.firstName} ${emp.lastName}` : 'Colaborador';
+        const signedAt = new Date().toISOString();
+
+        const signatureData = this.signaturePadInstance ? this.signaturePadInstance.toDataURL() : null;
+        const signatureHash = signatureData ? await DigitalSignaturePad.computeForensicHash(signatureData, empName, signedAt) : null;
+
+        const selectedEppItem = catalog[formData.get('eppId')] || {};
+
+        store.addEppDelivery({
+          employeeId: empId,
+          eppId: formData.get('eppId'),
+          eppName: selectedEppItem.name || 'EPP',
+          brandModel: formData.get('brandModel')?.trim(),
+          standard: formData.get('standard')?.trim(),
+          quantity: Number(formData.get('quantity')),
+          deliveryDate: formData.get('deliveryDate'),
+          expirationDate: formData.get('expirationDate'),
+          trainedInUse: formData.get('trainedInUse') !== null,
+          signature: signatureData,
+          signatureHash,
+          signedAt
+        });
+
+        Notifier.showToast('Constancia de EPP registrada y conformada conforme a Res. SRT 299/11', 'success');
+        this.closeModal();
+      });
+    }
+  }
+
   // --- Main View Rendering ---
   render() {
     const appEl = document.getElementById('app-view');
@@ -770,6 +974,9 @@ class AppController {
         break;
       case 'training':
         contentHtml = this.renderTrainingTab();
+        break;
+      case 'epp':
+        contentHtml = this.renderEppTab();
         break;
       case 'reports':
         contentHtml = this.renderReportsTab();
@@ -854,8 +1061,11 @@ class AppController {
       userNameEl.textContent = `${session.name} (${session.role === 'HR_ADMIN' ? 'RRHH' : 'Colaborador'})`;
     }
 
-    // Badge de alertas
-    const alerts = ExpirationEngine.scanAlerts(store.getEmployees());
+    // Badge de alertas (Habilitaciones + Recambios EPP)
+    const credAlerts = ExpirationEngine.scanAlerts(store.getEmployees());
+    const eppAlerts = EppEngine.scanEppAlerts(store.getEppDeliveries(), store.getEmployees());
+    const alerts = [...credAlerts, ...eppAlerts];
+
     const badgeEl = document.getElementById('pending-alerts-badge');
     if (badgeEl) {
       if (alerts.length > 0) {
@@ -900,7 +1110,9 @@ class AppController {
   renderDashboard() {
     const employees = store.getEmployees();
     const courses = store.getCourses();
-    const alerts = ExpirationEngine.scanAlerts(employees);
+    const credAlerts = ExpirationEngine.scanAlerts(employees);
+    const eppAlerts = EppEngine.scanEppAlerts(store.getEppDeliveries(), employees);
+    const alerts = [...credAlerts, ...eppAlerts].sort((a, b) => a.status.daysRemaining - b.status.daysRemaining);
 
     const totalEmployees = employees.length;
     const criticalAlerts = alerts.filter(a => a.status.code === 'EXPIRED' || a.status.code === 'URGENT').length;
@@ -1236,6 +1448,193 @@ class AppController {
     `;
   }
 
+  renderEppTab() {
+    const deliveries = store.getEppDeliveries();
+    const employees = store.getEmployees();
+    const catalog = store.getEppCatalog();
+    const posReqs = store.getPositionRequirements();
+
+    const totalDeliveries = deliveries.length;
+    const eppAlerts = EppEngine.scanEppAlerts(deliveries, employees);
+    const criticalEpp = eppAlerts.filter(a => a.status.code === 'EXPIRED' || a.status.code === 'URGENT').length;
+    const warningEpp = eppAlerts.filter(a => a.status.code === 'WARNING_HIGH' || a.status.code === 'WARNING_MEDIUM').length;
+
+    // Evaluaciones de dotación obligatoria por puesto
+    const employeeDotations = employees.map(emp => {
+      const evalStatus = EppEngine.evaluateEmployeeEppStatus(emp, deliveries, posReqs);
+      return { emp, evalStatus };
+    });
+
+    const deliveriesRows = deliveries.map(del => {
+      const evalRes = del.expirationDate ? ExpirationEngine.evaluateDate(del.expirationDate) : null;
+      const statusBadge = evalRes ? `
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${evalRes.status.badgeClass}">
+          ${Sanitizer.escapeHTML(evalRes.status.label)}
+        </span>
+      ` : '<span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">Sin vencimiento</span>';
+
+      const needsRenewal = evalRes && (evalRes.status.code === 'EXPIRED' || evalRes.status.code === 'URGENT' || evalRes.status.code === 'WARNING_HIGH');
+
+      return `
+        <tr class="border-b border-slate-100 hover:bg-slate-50 transition">
+          <td class="py-3 px-4">
+            <p class="font-bold text-slate-900 text-sm">${Sanitizer.escapeHTML(del.employeeName)}</p>
+            <p class="text-xs text-slate-500">DNI: ${Sanitizer.escapeHTML(del.dni || '')}</p>
+          </td>
+          <td class="py-3 px-4 text-xs font-medium text-slate-800">
+            ${Sanitizer.escapeHTML(del.eppName)}
+            <p class="text-[11px] text-slate-500">${Sanitizer.escapeHTML(del.brandModel || '')} (x${del.quantity || 1})</p>
+          </td>
+          <td class="py-3 px-4 text-xs font-semibold text-slate-700">
+            <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">${Sanitizer.escapeHTML(del.standard || 'Sello S / IRAM')}</span>
+          </td>
+          <td class="py-3 px-4 text-xs text-slate-600">${Sanitizer.escapeHTML(del.deliveryDate)}</td>
+          <td class="py-3 px-4 text-xs font-semibold">
+            ${statusBadge}
+            ${evalRes ? `<p class="text-[10px] text-slate-500 mt-0.5">${evalRes.formattedDate} (${evalRes.daysRemaining}d)</p>` : ''}
+          </td>
+          <td class="py-3 px-4 text-xs">
+            ${del.signature ? `
+              <div class="flex items-center gap-1.5">
+                <img src="${Sanitizer.sanitizeURL(del.signature)}" alt="Firma" class="h-6 max-w-[80px] border border-slate-200 rounded bg-white">
+                <span class="text-[10px] text-emerald-700 font-bold">Conforme</span>
+              </div>
+            ` : '<span class="text-xs text-amber-600 font-semibold">Pendiente</span>'}
+          </td>
+          <td class="py-3 px-4 text-right">
+            <div class="flex items-center justify-end gap-2">
+              ${needsRenewal ? `
+                <button data-action="send-whatsapp-alert" data-emp-id="${del.employeeId}" data-cred-id="${del.id}" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1">
+                  💬 WhatsApp
+                </button>
+              ` : ''}
+              <button data-action="delete-epp-delivery" data-id="${del.id}" class="p-1.5 text-slate-400 hover:text-red-600 rounded-lg" title="Anular Registro">
+                🗑️
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="space-y-6">
+        <div class="flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-xl font-bold text-slate-900">Entrega y Control de EPP (Res. SRT 299/11)</h2>
+              <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">Normativa Vigente</span>
+            </div>
+            <p class="text-xs text-slate-500">Constancias oficiales con firma digital del trabajador, certificaciones IRAM/Sello S y semáforo de recambio periódico.</p>
+          </div>
+          <div class="flex gap-2">
+            <button data-action="export-srt299-csv" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow flex items-center gap-1.5">
+              📥 Planilla SRT 299/11 CSV
+            </button>
+            <button data-action="open-modal-new-epp" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5">
+              ➕ Registrar Entrega de EPP
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjetas KPI -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-bold">🦺</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Entregas Activas en Planta</p>
+              <h3 class="text-2xl font-black text-slate-900">${totalDeliveries}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center text-2xl font-bold">⚠️</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Recambios Vencidos o Críticos (&lt; 7d)</p>
+              <h3 class="text-2xl font-black text-red-600">${criticalEpp}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl font-bold">🔄</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Por Vencer en 30 Días</p>
+              <h3 class="text-2xl font-black text-amber-600">${warningEpp}</h3>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla Oficial SRT 299/11 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-sm font-bold text-slate-800">Libro Digital de Entregas Individuales de EPP</h3>
+            <span class="text-xs text-slate-500">${totalDeliveries} registros firmados</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100/75 border-b border-slate-200 text-slate-600 uppercase tracking-wider text-[11px]">
+                  <th class="py-3 px-4 font-bold">Colaborador</th>
+                  <th class="py-3 px-4 font-bold">Elemento de Protección</th>
+                  <th class="py-3 px-4 font-bold">Certificación</th>
+                  <th class="py-3 px-4 font-bold">Fecha Entrega</th>
+                  <th class="py-3 px-4 font-bold">Estado Recambio</th>
+                  <th class="py-3 px-4 font-bold">Firma Recepción</th>
+                  <th class="py-3 px-4 font-bold text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${deliveriesRows || '<tr><td colspan="7" class="p-6 text-center text-slate-400">No hay entregas de EPP registradas aún.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Auditoría de Dotación por Colaborador -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Auditoría de Dotación Obligatoria según Puesto</h3>
+            <p class="text-xs text-slate-500">Verifica si el personal cuenta con todos los EPP mandatorios para su puesto operativo.</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${employeeDotations.map(({ emp, evalStatus }) => `
+              <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <h4 class="font-bold text-sm text-slate-900">${Sanitizer.escapeHTML(emp.firstName + ' ' + emp.lastName)}</h4>
+                    <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(emp.role)}</p>
+                  </div>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-black ${evalStatus.complianceRate === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
+                    ${evalStatus.complianceRate}% Cobertura
+                  </span>
+                </div>
+                <div class="space-y-1.5">
+                  <p class="text-[11px] font-bold text-slate-600 uppercase">Kit Obligatorio:</p>
+                  <div class="flex flex-wrap gap-1.5">
+                    ${evalStatus.fulfilled.map(f => `
+                      <span class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                        ${f.icon} ${Sanitizer.escapeHTML(f.name)} (Al día)
+                      </span>
+                    `).join('')}
+                    ${evalStatus.missing.map(m => `
+                      <span class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 border border-red-200 flex items-center gap-1">
+                        ⚠️ ${Sanitizer.escapeHTML(m.name)} (Faltante)
+                      </span>
+                    `).join('')}
+                    ${evalStatus.expired.map(x => `
+                      <span class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                        🔄 ${Sanitizer.escapeHTML(x.name)} (Vencido)
+                      </span>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+      </div>
+    `;
+  }
+
   renderPortalTab() {
     const session = store.getSession();
     const currentEmp = store.employees.find(e => e.id === session?.employeeId);
@@ -1247,6 +1646,7 @@ class AppController {
     const allCourses = store.getCourses();
     const myCourses = allCourses.filter(c => (c.participants || []).some(p => p.employeeId === currentEmp.id));
     const compliance = TrainingEngine.evaluateEmployeeCompliance(currentEmp, allCourses, store);
+    const myEppDeliveries = store.getEppDeliveriesByEmployee(currentEmp.id);
 
     return `
       <div class="max-w-2xl mx-auto space-y-6">
@@ -1320,6 +1720,37 @@ class AppController {
             }).join('') || '<p class="text-xs text-slate-400">Sin carnets registrados</p>'}
           </div>
         </div>
+
+        <!-- Dotación de EPP del Colaborador -->
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-slate-900 text-sm">Mi Dotación de EPP (Res. SRT 299/11)</h3>
+            <span class="text-xs font-semibold text-slate-500">Recambios y firmas conformadas</span>
+          </div>
+          <div class="space-y-2">
+            ${myEppDeliveries.length > 0 ? myEppDeliveries.map(d => {
+              const evalRes = d.expirationDate ? ExpirationEngine.evaluateDate(d.expirationDate) : null;
+              return `
+                <div class="p-3 rounded-xl border border-slate-100 bg-slate-50 flex justify-between items-center">
+                  <div>
+                    <p class="text-sm font-bold text-slate-800">${Sanitizer.escapeHTML(d.eppName)}</p>
+                    <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(d.brandModel)} • ${Sanitizer.escapeHTML(d.standard)}</p>
+                    <p class="text-[11px] text-slate-400">Entregado: ${Sanitizer.escapeHTML(d.deliveryDate)} • Cantidad: ${d.quantity}</p>
+                  </div>
+                  <div class="text-right">
+                    ${evalRes ? `
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${evalRes.status.badgeClass} block mb-1">
+                        ${Sanitizer.escapeHTML(evalRes.status.label)}
+                      </span>
+                      <span class="text-[10px] text-slate-500 block">Vence: ${evalRes.formattedDate}</span>
+                    ` : ''}
+                    <span class="text-[10px] text-emerald-700 font-bold">✅ Recepción Firmada</span>
+                  </div>
+                </div>
+              `;
+            }).join('') : '<p class="text-xs text-slate-400">Sin registros de entrega de EPP.</p>'}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1332,7 +1763,7 @@ class AppController {
           <p class="text-xs text-slate-500">Descargue registros con codificación UTF-8 BOM para apertura nativa en Microsoft Excel sin dependencias externas.</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div class="text-2xl">📋</div>
             <h3 class="font-bold text-slate-900 text-base">Nómina Integral de Personal</h3>
@@ -1347,7 +1778,18 @@ class AppController {
             <h3 class="font-bold text-slate-900 text-base">Auditoría de Vencimientos</h3>
             <p class="text-xs text-slate-500">Listado oficial de carnets de conducir y libretas sanitarias clasificados por severidad de vencimiento.</p>
             <button data-action="export-audit-csv" class="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold">
-              Descargar Auditoría de Vencimientos
+              Descargar Semáforo CSV
+            </button>
+          </div>
+
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <div class="text-2xl">🦺</div>
+            <h3 class="font-bold text-slate-900 text-base">Planilla Oficial EPP (SRT 299/11)</h3>
+            <p class="text-xs text-slate-500">Constancias oficiales de entrega de EPP con marcas, certificaciones IRAM/Sello S y sellado de firmas.</p>
+            <button data-action="export-srt299-csv" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold">
+              Descargar Planilla SRT CSV
+            </button>
+          </div>
             </button>
           </div>
 

@@ -1,8 +1,8 @@
-# 👥 TalentTrack — SaaS de Recursos Humanos, Skills & Capacitaciones
+# 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP & Capacitaciones
 
-> **Versión:** `v1.0.01` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 75/75 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
+> **Versión:** `v1.0.02` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
-**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
+**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
 
 ---
 
@@ -11,12 +11,20 @@
 ### 1. 🔐 Autenticación Robusta & Cero Fachadas (Reglas 1, 23 & 24)
 - **Cero Selectores Simulados:** Eliminación total de dropdowns simulados. Todo ingreso al sistema exige autenticación formal con contraseña o PIN.
 - **Roles y Permisos (RBAC):**
-  - **Administrador de RRHH (`HR_ADMIN`):** Acceso integral a dashboard, nómina de empleados, asignación de cursos, gestión de carnets y reportes de auditoría.
-  - **Colaborador / Operario (`EMPLOYEE`):** Confinamiento estricto a su propio portal móvil (zero cross-tenant leak), donde consulta sus cursos, su nivel de cumplimiento normativo y sus habilitaciones.
+  - **Administrador de RRHH (`HR_ADMIN`):** Acceso integral a dashboard, nómina de empleados, asignación de cursos, gestión de carnets, entregas de EPP y reportes de auditoría.
+  - **Colaborador / Operario (`EMPLOYEE`):** Confinamiento estricto a su propio portal móvil (zero cross-tenant leak), donde consulta sus cursos, su nivel de cumplimiento normativo, su dotación de EPP y sus habilitaciones.
 - **Protección contra Fuerza Bruta:** Implementación de `RateLimiter` con bloqueo temporal exponencial ante reintentos fallidos de login.
 - **Salado Criptográfico:** Contraseñas hasheadas con SHA-256 + salt único por usuario.
 
-### 2. 🗂️ Legajos 360°, Requisitos de Puesto & Adjuntos Reales
+### 2. 🦺 Módulo de Entrega y Control de EPP (Resolución SRT 299/11)
+- **Marco Normativo Argentino:** Implementación fidedigna de la planilla oficial de entrega de Elementos de Protección Personal (Res. SRT 299/11).
+- **Catálogo EPP Normado:** Calzado con Sello S (Res. SICyM 896/99 / IRAM 3610), Chalecos retrorreflectivos (IRAM 3859), Protección auditiva (IRAM 4060 / ANSI S3.19), Cascos Tipo 1 (IRAM 3620), Guantes de manipulación (IRAM 3607), Antiparras (IRAM 3630), Fajas lumbares ergonómicas (Res. SRT 886/15).
+- **Dotación Obligatoria según Puesto:** Auditoría de kit mandatorio por puesto operativo (ej. Chofer exige Calzado y Chaleco; Operario exige Calzado y Guantes) con cálculo dinámico del porcentaje de cobertura.
+- **Doble Declaración y Firma Táctil:** Captura de firma digital en pantalla táctil del trabajador acreditando la instrucción de uso (Art. 3 Res. SRT 299/11) con sellado forense SHA-256.
+- **Semáforo de Recambio Periódico:** Control de vida útil y fechas de recambio con alertas integradas al semáforo general y botón directo de notificación por WhatsApp.
+- **Exportación Oficial Planilla SRT 299/11:** Descarga instantánea en formato CSV con BOM UTF-8 y hash forense de recepción, lista para auditorías de ART, Ministerio de Trabajo o inspectores de la SRT.
+
+### 3. 🗂️ Legajos 360°, Requisitos de Puesto & Adjuntos Reales
 - **Estructura Multi-Tenant:** Aislamiento total de datos por empresa cliente o sede operativa.
 - **Ficha Integral de Empleado:** Datos personales, contacto (teléfono con formateo para WhatsApp, email), puesto, área/departamento, fecha de ingreso y estado activo.
 - **Requisitos de Puesto Configurables:** Cada empresa define qué capacitaciones son obligatorias según el puesto (ej. Chofer exige Manejo Defensivo; Operaria de Alimentos exige BPM) y el sistema calcula en tiempo real la tasa de cumplimiento del legajo.
@@ -133,6 +141,13 @@ node ../AiAppFactory/tools/security-guardian/index.mjs .
 - **Puntaje:** 100/100
 - **Vulnerabilidades:** 0 Críticas, 0 Altas, 0 Medias, 0 Bajas.
 - **CSP Cualitativa:** Sin `'unsafe-eval'`, sin comodines `*`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `HSTS` estricto.
+
+---
+
+## 📚 Documentación Estratégica & Roadmap de Expansión
+
+- **Estudio de Mercado Exhaustivo:** [docs/market_research.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/market_research.md) — Análisis 1 vs Todos frente al mercado argentino (Humand, Buk, Rankmi, Lucca, Workey, GeoVictoria), arquitectura técnica comparativa, estrategias de pricing (CAC vs LTV) y matriz de barreras de entrada.
+- **Plan Maestro de Expansión HR 360°:** [docs/ROADMAP_360.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/ROADMAP_360.md) — Hoja de ruta estratégica en 5 fases (EPP Oficial, Ausentismo & Licencias CCT, Polivalencia & Matriz 9-Box, Infraestructura Multi-Tenant Soberana, y Conectores de Liquidación / ARCA Libro de Sueldos Digital).
 
 ---
 

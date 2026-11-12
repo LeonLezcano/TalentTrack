@@ -5,6 +5,8 @@
 import { SkillsEngine } from '../src/modules/skills/skillsEngine.js';
 import { TrainingEngine } from '../src/modules/training/trainingEngine.js';
 import { AlertDispatcher } from '../src/modules/compliance/alertDispatcher.js';
+import { EppEngine } from '../src/modules/epp/eppEngine.js';
+import { Exporter } from '../src/modules/reports/exporter.js';
 import { store } from '../src/state/store.js';
 
 export async function runComponentTests(harness) {
@@ -50,4 +52,29 @@ export async function runComponentTests(harness) {
 
   harness.assert(waUrl.startsWith('https://wa.me/549'), 'Enlace de WhatsApp normaliza teléfono con código de país');
   harness.assert(waUrl.includes('vence%20en%2012%20d%C3%ADas') || waUrl.includes('vence'), 'Enlace incluye mensaje pre-armado con días de urgencia');
+
+  // --- Capa 3: Formato Oficial SRT 299/11 & Exportador ---
+  const mockDelivery = {
+    employeeName: 'Carlos Gómez',
+    dni: '32.458.912',
+    eppName: 'Calzado de Seguridad con Puntera',
+    brandModel: 'Voran Energy T42',
+    standard: 'Sello S / IRAM 3610',
+    quantity: 1,
+    deliveryDate: '2026-06-01',
+    expirationDate: '2026-12-01',
+    trainedInUse: true,
+    signature: 'data:image/svg+xml;base64,mock',
+    signatureHash: 'hash-srt-cg',
+    deliveredBy: 'Ing. Claudio Mendoza'
+  };
+
+  const srtRecord = EppEngine.formatSrt299Record(mockDelivery, choferCarlos, { name: 'Frigorífico La Huella', cuit: '30-71458923-4' });
+  harness.assert(srtRecord.cuit === '30-71458923-4', 'formatSrt299Record incluye CUIT de la empresa');
+  harness.assert(srtRecord.certificacion.includes('Sello S'), 'formatSrt299Record incluye certificación Sello S/IRAM');
+  harness.assert(srtRecord.capacitado === 'SÍ', 'formatSrt299Record acredita capacitación Art. 3 Res. 299/11');
+
+  const srtCsv = Exporter.exportSrt299Planilla([mockDelivery], { name: 'Frigorífico La Huella', cuit: '30-71458923-4' }, 'test_srt.csv');
+  harness.assert(srtCsv.startsWith('\uFEFF'), 'CSV de SRT 299/11 contiene BOM UTF-8 para Excel');
+  harness.assert(srtCsv.includes('Elemento de Protección Personal (EPP)') && srtCsv.includes('hash-srt-cg'), 'CSV de SRT 299/11 contiene encabezados normativos y hash forense');
 }

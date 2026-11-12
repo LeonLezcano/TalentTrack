@@ -9,22 +9,25 @@ export const INITIAL_COMPANIES = [
     cuit: '30-71458923-4',
     industry: 'Alimentos & Bebidas',
     location: 'Parque Industrial Pilar, Buenos Aires',
-    // Matriz de Requisitos Obligatorios por Puesto 100% Configurable
+    // Matriz de Requisitos Obligatorios por Puesto 100% Configurable (Capacitaciones + EPP SRT 299/11)
     positionRequirements: [
       {
         role: 'Chofer de Reparto Pesado',
         mandatoryCredentials: ['DRIVER_LICENSE'],
-        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+        mandatoryTrainings: ['MANEJO_DEFENSIVO'],
+        mandatoryEpp: ['CALZADO_SEGURIDAD', 'CHALECO_REFLECTIVO']
       },
       {
         role: 'Operaria de Elaboración & Envasado',
         mandatoryCredentials: ['FOOD_HANDLER_BPM'],
-        mandatoryTrainings: ['ALIMENTOS_BPM']
+        mandatoryTrainings: ['ALIMENTOS_BPM'],
+        mandatoryEpp: ['CALZADO_SEGURIDAD', 'PROTECTOR_AUDITIVO', 'GUANTES_NITRILO']
       },
       {
         role: 'Supervisor de Planta & Calidad',
         mandatoryCredentials: ['FOOD_HANDLER_BPM'],
-        mandatoryTrainings: ['ALIMENTOS_BPM', 'SEGURIDAD_HIGIENE']
+        mandatoryTrainings: ['ALIMENTOS_BPM', 'SEGURIDAD_HIGIENE'],
+        mandatoryEpp: ['CALZADO_SEGURIDAD', 'CASCO_SEGURIDAD', 'PROTECTOR_AUDITIVO']
       }
     ]
   },
@@ -38,12 +41,14 @@ export const INITIAL_COMPANIES = [
       {
         role: 'Chofer de Larga Distancia',
         mandatoryCredentials: ['DRIVER_LICENSE'],
-        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+        mandatoryTrainings: ['MANEJO_DEFENSIVO'],
+        mandatoryEpp: ['CALZADO_SEGURIDAD', 'CHALECO_REFLECTIVO']
       },
       {
         role: 'Chofer de Reparto Urbano',
         mandatoryCredentials: ['DRIVER_LICENSE'],
-        mandatoryTrainings: ['MANEJO_DEFENSIVO']
+        mandatoryTrainings: ['MANEJO_DEFENSIVO'],
+        mandatoryEpp: ['CALZADO_SEGURIDAD', 'CHALECO_REFLECTIVO']
       }
     ]
   }
@@ -308,5 +313,126 @@ export const INITIAL_COURSES = [
         signedAt: '2026-10-15T17:30:00.000Z'
       }
     ]
+  }
+];
+
+// Catálogo Oficial de EPP con Certificaciones Técnicas (Res. SRT 299/11)
+export const EPP_CATALOG = {
+  CALZADO_SEGURIDAD: {
+    id: 'CALZADO_SEGURIDAD',
+    name: 'Calzado de Seguridad con Puntera de Acero',
+    category: 'Protección de Pies',
+    standard: 'Sello S (Res. SICyM 896/99) / IRAM 3610',
+    renewalDays: 180, // Recambio semestral obligatorio
+    icon: '👢'
+  },
+  CHALECO_REFLECTIVO: {
+    id: 'CHALECO_REFLECTIVO',
+    name: 'Chaleco de Alta Visibilidad Retrorreflectivo',
+    category: 'Visibilidad / Seguridad Vial',
+    standard: 'IRAM 3859 / Clase 2',
+    renewalDays: 365,
+    icon: '🦺'
+  },
+  PROTECTOR_AUDITIVO: {
+    id: 'PROTECTOR_AUDITIVO',
+    name: 'Protector Auditivo de Copa / Endoaural',
+    category: 'Protección Auditiva',
+    standard: 'IRAM 4060 / ANSI S3.19',
+    renewalDays: 180,
+    icon: '🎧'
+  },
+  CASCO_SEGURIDAD: {
+    id: 'CASCO_SEGURIDAD',
+    name: 'Casco de Seguridad Industrial Clase B con Barbijo',
+    category: 'Protección Craneana',
+    standard: 'IRAM 3620 / Tipo 1',
+    renewalDays: 730,
+    icon: '⛑️'
+  },
+  GUANTES_NITRILO: {
+    id: 'GUANTES_NITRILO',
+    name: 'Guantes de Nitrilo para Manipulación de Alimentos',
+    category: 'Protección de Manos',
+    standard: 'IRAM 3607 / EN 388',
+    renewalDays: 60,
+    icon: '🧤'
+  },
+  ANTIPARRAS_SEGURIDAD: {
+    id: 'ANTIPARRAS_SEGURIDAD',
+    name: 'Antiparras de Seguridad Antimpacto y Salpicaduras',
+    category: 'Protección Ocular',
+    standard: 'IRAM 3630 / ANSI Z87.1',
+    renewalDays: 365,
+    icon: '🥽'
+  },
+  FAJA_LUMBAR: {
+    id: 'FAJA_LUMBAR',
+    name: 'Faja Lumbar Ergonómica con Tensores',
+    category: 'Ergonomía / Levantamiento de Cargas',
+    standard: 'Res. SRT 886/15',
+    renewalDays: 365,
+    icon: '🥋'
+  }
+};
+
+// Entregas Iniciales de EPP con Firmas Táctiles Reales (Res. SRT 299/11)
+export const INITIAL_EPP_DELIVERIES = [
+  {
+    id: 'epp_del_cg_01',
+    companyId: 'comp_alimentos',
+    employeeId: 'emp_carlos_gomez',
+    employeeName: 'Carlos Alberto Gómez',
+    dni: '32.458.912',
+    eppId: 'CALZADO_SEGURIDAD',
+    eppName: 'Calzado de Seguridad con Puntera de Acero',
+    brandModel: 'Voran Energy Sport T42',
+    standard: 'Sello S / IRAM 3610',
+    quantity: 1,
+    deliveryDate: '2026-06-01',
+    expirationDate: '2026-11-28', // En ~17 días -> WARNING_MEDIUM
+    trainedInUse: true,
+    signature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xNSAyNSBRIDM1IDEwIDcwIDMwIFQgMTEwIDIwIiBzdHJva2U9ImJsdWUiIGZpbGw9InRyYW5zcGFyZW50IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=',
+    signatureHash: 'sig-hash-epp-cg-calzado',
+    signedAt: '2026-06-01T10:00:00.000Z',
+    deliveredBy: 'Ing. Claudio Mendoza (Seguridad e Higiene)'
+  },
+  {
+    id: 'epp_del_cg_02',
+    companyId: 'comp_alimentos',
+    employeeId: 'emp_carlos_gomez',
+    employeeName: 'Carlos Alberto Gómez',
+    dni: '32.458.912',
+    eppId: 'CHALECO_REFLECTIVO',
+    eppName: 'Chaleco de Alta Visibilidad Retrorreflectivo',
+    brandModel: '3M Scotchlite Clase 2',
+    standard: 'IRAM 3859',
+    quantity: 1,
+    deliveryDate: '2026-01-15',
+    expirationDate: '2027-01-15', // Vigente
+    trainedInUse: true,
+    signature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xNSAyNSBRIDM1IDEwIDcwIDMwIFQgMTEwIDIwIiBzdHJva2U9ImJsdWUiIGZpbGw9InRyYW5zcGFyZW50IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=',
+    signatureHash: 'sig-hash-epp-cg-chaleco',
+    signedAt: '2026-01-15T09:30:00.000Z',
+    deliveredBy: 'Ing. Claudio Mendoza (Seguridad e Higiene)'
+  },
+  {
+    id: 'epp_del_ml_01',
+    companyId: 'comp_alimentos',
+    employeeId: 'emp_mariana_lopez',
+    employeeName: 'Mariana Soledad López',
+    dni: '36.874.521',
+    eppId: 'CALZADO_SEGURIDAD',
+    eppName: 'Calzado de Seguridad con Puntera de Acero',
+    brandModel: 'Ombú Krypton Dama T37',
+    standard: 'Sello S / IRAM 3610',
+    quantity: 1,
+    deliveryDate: '2026-04-10',
+    expirationDate: '2026-10-10', // VENCIDO (-31 días -> EXPIRED)
+    trainedInUse: true,
+    signature: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNDAiPjxwYXRoIGQ9Ik0xMCAyNSBRIDQwIDUgNjAgMjAgVCAxMTAgMTUiIHN0cm9rZT0iYmxhY2siIGZpbGw9InRyYW5zcGFyZW50IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=',
+    signatureHash: 'sig-hash-epp-ml-calzado',
+    signedAt: '2026-04-10T11:15:00.000Z',
+    deliveredBy: 'Ing. Claudio Mendoza (Seguridad e Higiene)'
   }
 ];
