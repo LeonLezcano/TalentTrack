@@ -42,42 +42,42 @@ export const STATUS_LEVELS = {
   EXPIRED: {
     code: 'EXPIRED',
     label: 'VENCIDO',
-    badgeClass: 'bg-red-500 text-white font-bold animate-pulse',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-bold bg-red-500 text-white shadow-sm animate-pulse',
     color: '#ef4444',
     severity: 4
   },
   URGENT: {
     code: 'URGENT',
     label: 'CRÍTICO (< 7 DÍAS)',
-    badgeClass: 'bg-rose-500 text-white font-semibold',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500 text-white shadow-sm',
     color: '#f43f5e',
     severity: 3
   },
   WARNING_HIGH: {
     code: 'WARNING_HIGH',
     label: 'ALERTA (< 15 DÍAS)',
-    badgeClass: 'bg-orange-500 text-white font-semibold',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-500 text-white shadow-sm',
     color: '#f97316',
     severity: 2
   },
   WARNING_MEDIUM: {
     code: 'WARNING_MEDIUM',
     label: 'ATENCIÓN (< 30 DÍAS)',
-    badgeClass: 'bg-amber-400 text-amber-950 font-semibold',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-400 text-amber-950 shadow-sm',
     color: '#fbbf24',
     severity: 1
   },
   VALID: {
     code: 'VALID',
     label: 'VIGENTE',
-    badgeClass: 'bg-emerald-500 text-white font-medium',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500 text-white shadow-sm',
     color: '#10b981',
     severity: 0
   },
   NOT_APPLICABLE: {
     code: 'NOT_APPLICABLE',
     label: 'NO DEFINIDO',
-    badgeClass: 'bg-slate-400 text-white',
+    badgeClass: 'inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-xs bg-slate-400 text-white shadow-sm',
     color: '#94a3b8',
     severity: -1
   }

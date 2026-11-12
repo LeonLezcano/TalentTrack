@@ -10,67 +10,138 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./src/styles/app.css">
 </head>
-<body class="h-full flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
+<body class="h-full flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-500 selection:text-white bg-slate-50">
 
-  <!-- Encabezado de Navegación Autenticado (Cerrado por defecto) -->
-  <header id="main-header" class="hidden no-print bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        
-        <!-- Logo e Identidad -->
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-xl font-black shadow-inner">
-            TT
-          </div>
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="font-extrabold text-lg tracking-tight">TalentTrack</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/30 text-blue-300 border border-blue-400/30">v1.0.02</span>
-            </div>
-            <p id="header-company-name" class="text-[10px] text-slate-400 truncate max-w-[200px]"></p>
-          </div>
+  <!-- Mobile Top Bar (Solo visible en pantallas pequeñas cuando está autenticado como HR_ADMIN) -->
+  <header id="mobile-header" class="hidden no-print lg:hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <button data-action="toggle-mobile-drawer" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition" title="Abrir Menú">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-sm font-black shadow-xs">TT</div>
+          <span class="font-extrabold text-base tracking-tight text-slate-900">TalentTrack</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">v1.0.03</span>
         </div>
-
-        <!-- Usuario Activo, Alertas y Cerrar Sesión -->
-        <div class="flex items-center gap-3">
-          <span id="header-user-name" class="text-xs font-semibold text-slate-300 hidden sm:block"></span>
-
-          <!-- Campana de Alertas -->
-          <button data-action="switch-tab" data-id="dashboard" class="relative p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800" title="Ver Alertas">
-            🔔
-            <span id="pending-alerts-badge" class="hidden absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">0</span>
-          </button>
-
-          <button data-action="logout" class="px-3 py-1.5 bg-slate-800 hover:bg-red-950 text-slate-300 hover:text-red-300 border border-slate-700 hover:border-red-800 rounded-xl text-xs font-semibold transition" title="Cerrar Sesión Segura">
-            Salir
-          </button>
-        </div>
-
       </div>
-
-      <!-- Barra de pestañas horizontales -->
-      <nav id="header-nav-tabs" class="flex space-x-1 py-2 overflow-x-auto text-xs sm:text-sm no-scrollbar border-t border-slate-800">
-        <button data-action="switch-tab" data-id="dashboard" data-nav-tab="dashboard">
-          📊 Dashboard & Alertas
+      <div class="flex items-center gap-2">
+        <button data-action="switch-tab" data-id="dashboard" class="relative p-2 text-slate-500 hover:text-slate-800 rounded-xl hover:bg-slate-100" title="Ver Alertas">
+          🔔
+          <span id="mobile-pending-alerts-badge" class="hidden absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">0</span>
         </button>
-        <button data-action="switch-tab" data-id="employees" data-nav-tab="employees">
-          👥 Legajos (Personal)
+        <button data-action="logout" class="px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition">
+          Salir
         </button>
-        <button data-action="switch-tab" data-id="skills" data-nav-tab="skills">
-          🎯 Buscador de Skills
-        </button>
-        <button data-action="switch-tab" data-id="training" data-nav-tab="training">
-          🎓 Agenda & Firmas
-        </button>
-        <button data-action="switch-tab" data-id="epp" data-nav-tab="epp">
-          🦺 EPP & Dotación
-        </button>
-        <button data-action="switch-tab" data-id="reports" data-nav-tab="reports">
-          📋 Auditoría & Exportar
-        </button>
-      </nav>
+      </div>
     </div>
   </header>
+
+  <!-- Backdrop para Drawer Móvil -->
+  <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 hidden lg:hidden transition-opacity"></div>
+
+  <!-- Sidebar Lateral Blanco / Minimalista (Desktop Collapsible & Mobile Drawer) -->
+  <aside id="app-sidebar" class="hidden no-print fixed top-0 bottom-0 left-0 z-50 bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out -translate-x-full lg:translate-x-0 w-64 shadow-xs">
+    
+    <!-- Encabezado del Sidebar -->
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="flex items-center gap-3 overflow-hidden">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 shrink-0 flex items-center justify-center text-white text-base font-black shadow-inner">
+          TT
+        </div>
+        <div class="sidebar-text truncate">
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold text-base tracking-tight text-slate-900">TalentTrack</span>
+            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">v1.0.03</span>
+          </div>
+          <p class="text-[11px] text-slate-400">RRHH & Operaciones</p>
+        </div>
+      </div>
+
+      <!-- Botón Colapsar en Desktop -->
+      <button data-action="toggle-sidebar" class="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" title="Colapsar / Expandir Barra Lateral">
+        <svg id="sidebar-toggle-icon" class="w-5 h-5 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+      </button>
+
+      <!-- Botón Cerrar en Móvil -->
+      <button data-action="close-mobile-drawer" class="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Ficha de Empresa Activa -->
+    <div id="sidebar-company-card" class="p-3 mx-3 my-2 bg-slate-50 border border-slate-200/80 rounded-xl sidebar-text">
+      <p class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Empresa Activa</p>
+      <p id="header-company-name" class="text-xs font-bold text-slate-800 truncate"></p>
+      <p id="sidebar-company-industry" class="text-[11px] text-slate-500 truncate"></p>
+    </div>
+
+    <!-- Menú de Navegación Vertical -->
+    <nav class="flex-1 overflow-y-auto px-3 py-2 space-y-4">
+      
+      <!-- Grupo: Operaciones Diarias -->
+      <div class="space-y-1">
+        <p class="sidebar-text px-2 text-[10px] uppercase font-bold tracking-wider text-slate-400">Operaciones</p>
+        
+        <button data-action="switch-tab" data-id="dashboard" data-nav-tab="dashboard" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="Dashboard & Alertas">
+          <span class="text-base shrink-0">📊</span>
+          <span class="sidebar-text truncate flex-1 text-left">Dashboard & Alertas</span>
+          <span id="pending-alerts-badge" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">0</span>
+        </button>
+
+        <button data-action="switch-tab" data-id="employees" data-nav-tab="employees" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="Legajos de Personal">
+          <span class="text-base shrink-0">👥</span>
+          <span class="sidebar-text truncate flex-1 text-left">Legajos (Personal)</span>
+        </button>
+
+        <button data-action="switch-tab" data-id="epp" data-nav-tab="epp" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="EPP & Dotación (Res. SRT 299/11)">
+          <span class="text-base shrink-0">🦺</span>
+          <span class="sidebar-text truncate flex-1 text-left">EPP & Dotación</span>
+          <span id="pending-epp-badge" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">0</span>
+        </button>
+      </div>
+
+      <!-- Grupo: Desarrollo & Compliance -->
+      <div class="space-y-1 pt-2 border-t border-slate-100">
+        <p class="sidebar-text px-2 text-[10px] uppercase font-bold tracking-wider text-slate-400">Desarrollo & Normas</p>
+
+        <button data-action="switch-tab" data-id="skills" data-nav-tab="skills" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="Buscador de Skills">
+          <span class="text-base shrink-0">🎯</span>
+          <span class="sidebar-text truncate flex-1 text-left">Buscador de Skills</span>
+        </button>
+
+        <button data-action="switch-tab" data-id="training" data-nav-tab="training" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="Agenda & Firmas">
+          <span class="text-base shrink-0">🎓</span>
+          <span class="sidebar-text truncate flex-1 text-left">Agenda & Firmas</span>
+        </button>
+
+        <button data-action="switch-tab" data-id="reports" data-nav-tab="reports" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition group" title="Auditoría & Exportar">
+          <span class="text-base shrink-0">📋</span>
+          <span class="sidebar-text truncate flex-1 text-left">Auditoría & Exportar</span>
+        </button>
+      </div>
+
+    </nav>
+
+    <!-- Pie del Sidebar: Usuario & Cerrar Sesión -->
+    <div class="p-3 border-t border-slate-100 bg-slate-50/50">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 overflow-hidden sidebar-text">
+          <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
+            👤
+          </div>
+          <div class="truncate">
+            <p id="header-user-name" class="text-xs font-bold text-slate-800 truncate"></p>
+            <p class="text-[10px] text-slate-400">Administrador RRHH</p>
+          </div>
+        </div>
+        <button data-action="logout" class="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition shrink-0" title="Cerrar Sesión Segura">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </aside>
 
   <!-- Encabezado de Impresión Limpia (print-only) -->
   <div class="hidden print-only p-6 border-b border-slate-300">
@@ -86,8 +157,11 @@
     </div>
   </div>
 
-  <!-- Vista Principal Dinámica -->
-  <main id="app-view" class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8"></main>
+  <!-- Contenedor Principal Adaptativo a la Barra Lateral -->
+  <div id="main-content-layout" class="flex-1 flex flex-col transition-all duration-300 ease-in-out lg:ml-64 min-w-0">
+    <!-- Vista Principal Dinámica -->
+    <main id="app-view" class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8"></main>
+  </div>
 
   <!-- Modales Dinámicos -->
   <div id="modal-container" class="hidden"></div>

@@ -61,34 +61,37 @@ export class Notifier {
 
   /**
    * Screen Wake Lock API (Mandatory for field/driving roles)
-   * Auto-reengages when returning from background (visibilitychange).
+   * Auto-reengages when returning from background (visibilitychange) cleanly without spam.
    */
-  static initScreenWakeLock() {
-    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
-      console.log('ℹ️ [WakeLock] Screen Wake Lock API no soportado en este entorno.');
-      return;
-    }
+  static _wakeLockInitialized = false;
+  static _wakeLockSentinel = null;
 
-    let wakeLockSentinel = null;
+  static initScreenWakeLock() {
+    if (this._wakeLockInitialized) return;
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+
+    this._wakeLockInitialized = true;
 
     const requestLock = async () => {
+      // Evitar solicitar si ya está activo
+      if (this._wakeLockSentinel && !this._wakeLockSentinel.released) return;
       try {
-        wakeLockSentinel = await navigator.wakeLock.request('screen');
-        console.log('💡 [WakeLock] Pantalla activa fijada para rol operativo.');
-        wakeLockSentinel.addEventListener('release', () => {
-          console.log('💡 [WakeLock] Bloqueo de pantalla liberado.');
-        });
-      } catch (err) {
-        console.warn('⚠️ [WakeLock] No se pudo solicitar wake lock:', err.message);
+        this._wakeLockSentinel = await navigator.wakeLock.request('screen');
+        this._wakeLockSentinel.addEventListener('release', () => {
+          this._wakeLockSentinel = null;
+        }, { once: true });
+      } catch {
+        // Fallback silencioso sin polución de consola
+        this._wakeLockSentinel = null;
       }
     };
 
     requestLock();
 
-    // Re-enganche obligatorio al volver a la pestaña
+    // Re-enganche controlado al volver a la pestaña activa
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
-        if (wakeLockSentinel !== null && document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible') {
           requestLock();
         }
       });

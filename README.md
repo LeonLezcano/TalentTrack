@@ -1,12 +1,19 @@
 # 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP & Capacitaciones
 
-> **Versión:** `v1.0.02` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
+> **Versión:** `v1.0.03` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
 **TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
 
 ---
 
 ## 🌟 Capacidades Clave del Sistema
+
+### 1. 🧭 Interfaz de Usuario Moderna, Responsive & Barra Lateral Colapsable
+- **Menú Lateral Minimalista (White / Light-Gray Theme):** Navegación lateral limpia con bordes sutiles, agrupando módulos en *Operaciones Diarias* y *Desarrollo & Normativa*.
+- **Colapso a Modo Iconos en Desktop:** En pantallas de escritorio, la barra lateral puede colapsarse de `w-64` a `w-20` con un clic, optimizando el área visual de trabajo mientras preserva tooltips informativos.
+- **Drawer Deslizante en Smartphones:** En pantallas móviles, cuenta con cabecera compacta, botón hamburguesa (`☰`) y panel deslizante con fondo translúcido (*backdrop blur*).
+- **Insignias de Estado Blindadas:** Eliminación de roturas de etiquetas (`whitespace-nowrap` + `inline-flex`), garantizando que los estados de semáforo jamás se deformen o dividan a la mitad.
+- **WakeLock Limpio sin Ruido:** Optimización del ciclo de vida de pantalla activa para roles de campo/conducción con cero spam en la consola del navegador.
 
 ### 1. 🔐 Autenticación Robusta & Cero Fachadas (Reglas 1, 23 & 24)
 - **Cero Selectores Simulados:** Eliminación total de dropdowns simulados. Todo ingreso al sistema exige autenticación formal con contraseña o PIN.

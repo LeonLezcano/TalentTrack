@@ -25,6 +25,8 @@ class AppController {
     this.selectedCourseForSignature = null;
     this.selectedParticipantForSignature = null;
     this.activeDocumentPreview = null;
+    this.isSidebarCollapsed = localStorage.getItem('talenttrack_sidebar_collapsed') === 'true';
+    this.isMobileDrawerOpen = false;
   }
 
   init() {
@@ -52,13 +54,33 @@ class AppController {
 
       this.handleAction(action, id, target);
     });
+
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (backdrop) {
+      backdrop.addEventListener('click', () => {
+        this.closeMobileDrawer();
+      });
+    }
   }
 
   handleAction(action, id, target) {
     switch (action) {
       case 'switch-tab':
         this.currentTab = id;
+        this.closeMobileDrawer();
         this.render();
+        break;
+
+      case 'toggle-sidebar':
+        this.toggleSidebar();
+        break;
+
+      case 'toggle-mobile-drawer':
+        this.toggleMobileDrawer();
+        break;
+
+      case 'close-mobile-drawer':
+        this.closeMobileDrawer();
         break;
 
       case 'logout':
@@ -936,30 +958,115 @@ class AppController {
     }
   }
 
+  toggleSidebar() {
+    this.isSidebarCollapsed = !this.isSidebarCollapsed;
+    localStorage.setItem('talenttrack_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+    this.applySidebarLayout();
+  }
+
+  toggleMobileDrawer() {
+    this.isMobileDrawerOpen = !this.isMobileDrawerOpen;
+    this.applyMobileDrawer();
+  }
+
+  closeMobileDrawer() {
+    if (this.isMobileDrawerOpen) {
+      this.isMobileDrawerOpen = false;
+      this.applyMobileDrawer();
+    }
+  }
+
+  applyMobileDrawer() {
+    const sidebar = document.getElementById('app-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (!sidebar || !backdrop) return;
+
+    if (this.isMobileDrawerOpen) {
+      sidebar.classList.remove('-translate-x-full');
+      sidebar.classList.add('translate-x-0');
+      backdrop.classList.remove('hidden');
+    } else {
+      sidebar.classList.add('-translate-x-full');
+      sidebar.classList.remove('translate-x-0');
+      backdrop.classList.add('hidden');
+    }
+  }
+
+  applySidebarLayout() {
+    const sidebar = document.getElementById('app-sidebar');
+    const layout = document.getElementById('main-content-layout');
+    const toggleIcon = document.getElementById('sidebar-toggle-icon');
+    const companyCard = document.getElementById('sidebar-company-card');
+    if (!sidebar || !layout) return;
+
+    if (this.isSidebarCollapsed) {
+      sidebar.classList.remove('w-64');
+      sidebar.classList.add('w-20');
+      layout.classList.remove('lg:ml-64');
+      layout.classList.add('lg:ml-20');
+      if (toggleIcon) toggleIcon.style.transform = 'rotate(180deg)';
+      if (companyCard) companyCard.classList.add('hidden');
+      document.querySelectorAll('.sidebar-text').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('[data-nav-tab]').forEach(btn => {
+        btn.classList.add('justify-center');
+      });
+    } else {
+      sidebar.classList.remove('w-20');
+      sidebar.classList.add('w-64');
+      layout.classList.remove('lg:ml-20');
+      layout.classList.add('lg:ml-64');
+      if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
+      if (companyCard) companyCard.classList.remove('hidden');
+      document.querySelectorAll('.sidebar-text').forEach(el => el.classList.remove('hidden'));
+      document.querySelectorAll('[data-nav-tab]').forEach(btn => {
+        btn.classList.remove('justify-center');
+      });
+    }
+  }
+
   // --- Main View Rendering ---
   render() {
     const appEl = document.getElementById('app-view');
-    const headerEl = document.getElementById('main-header');
+    const sidebarEl = document.getElementById('app-sidebar');
+    const mobileHeaderEl = document.getElementById('mobile-header');
+    const layoutEl = document.getElementById('main-content-layout');
     if (!appEl) return;
 
     // 1. Enrutamiento cerrado por defecto (Regla 24): Si no está autenticado, renderizar Login
     if (!store.isAuthenticated()) {
-      if (headerEl) headerEl.classList.add('hidden');
+      if (sidebarEl) sidebarEl.classList.add('hidden');
+      if (mobileHeaderEl) mobileHeaderEl.classList.add('hidden');
+      if (layoutEl) {
+        layoutEl.classList.remove('lg:ml-64', 'lg:ml-20');
+        layoutEl.classList.add('lg:ml-0');
+      }
       this.renderLoginView(appEl);
       return;
     }
-
-    // 2. Si está autenticado, mostrar header y vista correspondiente
-    if (headerEl) headerEl.classList.remove('hidden');
-    this.updateHeaderControls();
 
     const session = store.getSession();
 
     // Confinamiento estricto: El rol EMPLOYEE solo tiene acceso a su Portal Móvil
     if (session.role === 'EMPLOYEE') {
+      if (sidebarEl) sidebarEl.classList.add('hidden');
+      if (mobileHeaderEl) mobileHeaderEl.classList.add('hidden');
+      if (layoutEl) {
+        layoutEl.classList.remove('lg:ml-64', 'lg:ml-20');
+        layoutEl.classList.add('lg:ml-0');
+      }
       Sanitizer.renderTemplate(appEl, this.renderPortalTab());
       return;
     }
+
+    // Rol HR_ADMIN: Mostrar Sidebar y Mobile Header
+    if (sidebarEl) sidebarEl.classList.remove('hidden');
+    if (mobileHeaderEl) mobileHeaderEl.classList.remove('hidden');
+    if (layoutEl) {
+      layoutEl.classList.remove('lg:ml-0');
+      layoutEl.classList.add(this.isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64');
+    }
+    this.applySidebarLayout();
+    this.updateHeaderControls();
 
     let contentHtml = '';
     switch (this.currentTab) {
@@ -1056,9 +1163,14 @@ class AppController {
       compNameEl.textContent = company.name;
     }
 
+    const indEl = document.getElementById('sidebar-company-industry');
+    if (indEl && company) {
+      indEl.textContent = company.industry || 'Industria & Servicios';
+    }
+
     const userNameEl = document.getElementById('header-user-name');
     if (userNameEl && session) {
-      userNameEl.textContent = `${session.name} (${session.role === 'HR_ADMIN' ? 'RRHH' : 'Colaborador'})`;
+      userNameEl.textContent = session.name;
     }
 
     // Badge de alertas (Habilitaciones + Recambios EPP)
@@ -1067,28 +1179,27 @@ class AppController {
     const alerts = [...credAlerts, ...eppAlerts];
 
     const badgeEl = document.getElementById('pending-alerts-badge');
-    if (badgeEl) {
-      if (alerts.length > 0) {
-        badgeEl.textContent = alerts.length;
-        badgeEl.classList.remove('hidden');
+    const mobileBadgeEl = document.getElementById('mobile-pending-alerts-badge');
+    if (alerts.length > 0) {
+      if (badgeEl) { badgeEl.textContent = alerts.length; badgeEl.classList.remove('hidden'); }
+      if (mobileBadgeEl) { mobileBadgeEl.textContent = alerts.length; mobileBadgeEl.classList.remove('hidden'); }
+    } else {
+      if (badgeEl) badgeEl.classList.add('hidden');
+      if (mobileBadgeEl) mobileBadgeEl.classList.add('hidden');
+    }
+
+    const eppBadgeEl = document.getElementById('pending-epp-badge');
+    if (eppBadgeEl) {
+      if (eppAlerts.length > 0) {
+        eppBadgeEl.textContent = eppAlerts.length;
+        eppBadgeEl.classList.remove('hidden');
       } else {
-        badgeEl.classList.add('hidden');
+        eppBadgeEl.classList.add('hidden');
       }
     }
 
     // Blindaje de Visibilidad RBAC en DOM (Regla 11)
-    const navTabsEl = document.getElementById('header-nav-tabs');
     const isEmployee = session && session.role === 'EMPLOYEE';
-
-    if (navTabsEl) {
-      if (isEmployee) {
-        navTabsEl.classList.add('hidden');
-        navTabsEl.style.setProperty('display', 'none', 'important');
-      } else {
-        navTabsEl.classList.remove('hidden');
-        navTabsEl.style.removeProperty('display');
-      }
-    }
 
     document.querySelectorAll('[data-nav-tab]').forEach(btn => {
       if (isEmployee) {
@@ -1098,10 +1209,14 @@ class AppController {
         btn.classList.remove('hidden');
         btn.style.removeProperty('display');
         const tabId = btn.getAttribute('data-nav-tab');
-        if (tabId === this.currentTab) {
-          btn.className = 'px-3.5 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white shadow-sm flex items-center gap-2';
+        const isActive = tabId === this.currentTab;
+        const baseClasses = 'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition group cursor-pointer';
+        const collapsedClasses = this.isSidebarCollapsed ? 'justify-center' : '';
+
+        if (isActive) {
+          btn.className = `${baseClasses} ${collapsedClasses} font-semibold bg-blue-50 text-blue-700 border-l-4 border-blue-600 shadow-xs`;
         } else {
-          btn.className = 'px-3.5 py-2 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition flex items-center gap-2';
+          btn.className = `${baseClasses} ${collapsedClasses} font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80`;
         }
       }
     });
@@ -1121,19 +1236,19 @@ class AppController {
 
     const alertsRows = alerts.map(a => `
       <tr class="border-b border-slate-100 hover:bg-slate-50 transition">
-        <td class="py-3 px-4">
-          <span class="px-2.5 py-1 rounded-full text-xs font-bold ${a.status.badgeClass}">
+        <td class="py-3 px-4 whitespace-nowrap">
+          <span class="${a.status.badgeClass}">
             ${Sanitizer.escapeHTML(a.status.label)}
           </span>
         </td>
-        <td class="py-3 px-4 font-semibold text-slate-900">${Sanitizer.escapeHTML(a.employeeName)}</td>
-        <td class="py-3 px-4 text-xs text-slate-600">${Sanitizer.escapeHTML(a.employeeRole)}</td>
+        <td class="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">${Sanitizer.escapeHTML(a.employeeName)}</td>
+        <td class="py-3 px-4 text-xs text-slate-600 whitespace-nowrap">${Sanitizer.escapeHTML(a.employeeRole)}</td>
         <td class="py-3 px-4 text-xs font-medium text-slate-800">${Sanitizer.escapeHTML(a.credentialLabel)}</td>
-        <td class="py-3 px-4 text-xs text-slate-500">${Sanitizer.escapeHTML((a.categories || []).join(', ') || 'General')}</td>
-        <td class="py-3 px-4 text-xs font-semibold ${a.daysRemaining < 0 ? 'text-red-600' : 'text-amber-700'}">
+        <td class="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">${Sanitizer.escapeHTML((a.categories || []).join(', ') || 'General')}</td>
+        <td class="py-3 px-4 text-xs font-semibold whitespace-nowrap ${a.daysRemaining < 0 ? 'text-red-600' : 'text-amber-700'}">
           ${Sanitizer.escapeHTML(a.formattedDate)} (${a.daysRemaining !== null ? `${a.daysRemaining}d` : '-'})
         </td>
-        <td class="py-3 px-4 text-right flex items-center justify-end gap-2">
+        <td class="py-3 px-4 text-right whitespace-nowrap flex items-center justify-end gap-2">
           <button data-action="send-whatsapp-alert" data-emp-id="${a.employeeId}" data-cred-id="${a.credentialId}" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm" title="Avisar por WhatsApp">
             💬 WhatsApp
           </button>
@@ -1144,7 +1259,7 @@ class AppController {
 
     return `
       <div class="space-y-6">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
             <div class="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-2xl font-bold">👥</div>
             <div>
@@ -1194,13 +1309,13 @@ class AppController {
               <table class="w-full text-left text-sm">
                 <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
                   <tr>
-                    <th class="py-3 px-4">Estado</th>
-                    <th class="py-3 px-4">Colaborador</th>
-                    <th class="py-3 px-4">Puesto</th>
-                    <th class="py-3 px-4">Habilitación</th>
-                    <th class="py-3 px-4">Categoría</th>
-                    <th class="py-3 px-4">Vencimiento</th>
-                    <th class="py-3 px-4 text-right">Acción Rápida</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Estado</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Colaborador</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Puesto</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Habilitación</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Categoría</th>
+                    <th class="py-3 px-4 whitespace-nowrap">Vencimiento</th>
+                    <th class="py-3 px-4 text-right whitespace-nowrap">Acción Rápida</th>
                   </tr>
                 </thead>
                 <tbody>${alertsRows}</tbody>
