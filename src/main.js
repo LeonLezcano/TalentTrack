@@ -1236,28 +1236,31 @@ class AppController {
     const warningAlerts = alerts.filter(a => a.status.code === 'WARNING_HIGH' || a.status.code === 'WARNING_MEDIUM').length;
     const scheduledCourses = courses.filter(c => c.status === 'SCHEDULED').length;
 
-    const alertsRows = alerts.map(a => `
+    const alertsRows = alerts.map(a => {
+      const cats = (a.categories || []).length > 0 ? a.categories.join(', ') : 'General';
+      return `
       <tr class="border-b border-slate-100 hover:bg-slate-50 transition">
-        <td class="py-3 px-4 whitespace-nowrap">
+        <td class="py-3 px-3 whitespace-nowrap">
           <span class="${a.status.badgeClass}">
             ${Sanitizer.escapeHTML(a.status.label)}
           </span>
         </td>
-        <td class="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">${Sanitizer.escapeHTML(a.employeeName)}</td>
-        <td class="py-3 px-4 text-xs text-slate-600 whitespace-nowrap">${Sanitizer.escapeHTML(a.employeeRole)}</td>
-        <td class="py-3 px-4 text-xs font-medium text-slate-800">${Sanitizer.escapeHTML(a.credentialLabel)}</td>
-        <td class="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">${Sanitizer.escapeHTML((a.categories || []).join(', ') || 'General')}</td>
-        <td class="py-3 px-4 text-xs font-semibold whitespace-nowrap ${a.daysRemaining < 0 ? 'text-red-600' : 'text-amber-700'}">
+        <td class="py-3 px-3 font-semibold text-slate-900 text-xs">${Sanitizer.escapeHTML(a.employeeName)}</td>
+        <td class="py-3 px-3 text-xs text-slate-600 max-w-[150px] leading-tight">${Sanitizer.escapeHTML(a.employeeRole)}</td>
+        <td class="py-3 px-3 text-xs font-medium text-slate-800 max-w-[170px] leading-tight">${Sanitizer.escapeHTML(a.credentialLabel)}</td>
+        <td class="py-3 px-3 text-[11px] text-slate-500 max-w-[210px] leading-snug break-words">${Sanitizer.escapeHTML(cats)}</td>
+        <td class="py-3 px-3 text-xs font-semibold whitespace-nowrap ${a.daysRemaining < 0 ? 'text-red-600' : 'text-amber-700'}">
           ${Sanitizer.escapeHTML(a.formattedDate)} (${a.daysRemaining !== null ? `${a.daysRemaining}d` : '-'})
         </td>
-        <td class="py-3 px-4 text-right whitespace-nowrap flex items-center justify-end gap-2">
+        <td class="py-3 px-3 text-right whitespace-nowrap flex items-center justify-end gap-2">
           <button data-action="send-whatsapp-alert" data-emp-id="${a.employeeId}" data-cred-id="${a.credentialId}" class="p-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg shadow-xs transition flex items-center justify-center shrink-0" title="Avisar por WhatsApp">
             ${WHATSAPP_ICON_SVG}
           </button>
           <button data-action="open-modal-edit-employee" data-id="${a.employeeId}" class="text-xs text-blue-600 hover:underline font-medium">Legajo</button>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
       <div class="space-y-6">
@@ -1311,13 +1314,13 @@ class AppController {
               <table class="w-full text-left text-sm">
                 <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
                   <tr>
-                    <th class="py-3 px-4 whitespace-nowrap">Estado</th>
-                    <th class="py-3 px-4 whitespace-nowrap">Colaborador</th>
-                    <th class="py-3 px-4 whitespace-nowrap">Puesto</th>
-                    <th class="py-3 px-4 whitespace-nowrap">Habilitación</th>
-                    <th class="py-3 px-4 whitespace-nowrap">Categoría</th>
-                    <th class="py-3 px-4 whitespace-nowrap">Vencimiento</th>
-                    <th class="py-3 px-4 text-right whitespace-nowrap">Acción Rápida</th>
+                    <th class="py-3 px-3 whitespace-nowrap">Estado</th>
+                    <th class="py-3 px-3 whitespace-nowrap">Colaborador</th>
+                    <th class="py-3 px-3 whitespace-nowrap">Puesto</th>
+                    <th class="py-3 px-3 whitespace-nowrap">Habilitación</th>
+                    <th class="py-3 px-3">Categoría</th>
+                    <th class="py-3 px-3 whitespace-nowrap">Vencimiento</th>
+                    <th class="py-3 px-3 text-right whitespace-nowrap">Acción Rápida</th>
                   </tr>
                 </thead>
                 <tbody>${alertsRows}</tbody>

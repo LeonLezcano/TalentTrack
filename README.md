@@ -1,6 +1,6 @@
 # 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP & Capacitaciones
 
-> **Versión:** `v1.0.04` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
+> **Versión:** `v1.0.05` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 101/101 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
 **TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
 

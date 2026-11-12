@@ -3,7 +3,7 @@
  * Cache-first strategy for static assets, network-first for dynamic sync.
  */
 
-const CACHE_NAME = 'talenttrack-v1.0.04';
+const CACHE_NAME = 'talenttrack-v1.0.05';
 const STATIC_ASSETS = [
   './',
   './index.html',
