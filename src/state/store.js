@@ -4,8 +4,10 @@
  * and position requirements engine.
  */
 
-import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES, INITIAL_EPP_DELIVERIES, INITIAL_LEAVES, EPP_CATALOG } from './initialData.js';
+import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_EMPLOYEES, INITIAL_COURSES, INITIAL_EPP_DELIVERIES, INITIAL_LEAVES, INITIAL_PAYROLLS, EPP_CATALOG } from './initialData.js';
 import { LeaveEngine } from '../modules/leaves/leaveEngine.js';
+import { PayrollEngine } from '../modules/payroll/payrollEngine.js';
+import { CCT_CATALOG } from '../modules/payroll/cctCatalog.js';
 
 const STORAGE_KEY_PREFIX = 'talenttrack_vault_';
 const PURGE_FLAG_KEY = 'mipcontrol_demo_purged';
@@ -19,6 +21,8 @@ class Store {
     this.courses = [];
     this.eppDeliveries = [];
     this.leaves = [];
+    this.payrolls = [];
+    this.cctConfigs = {};
     this.activeSession = null;
     this.listeners = new Set();
     this.isInitialized = false;
@@ -37,6 +41,8 @@ class Store {
       this.courses = this._getStorageJSON('courses') || [];
       this.eppDeliveries = this._getStorageJSON('eppDeliveries') || [];
       this.leaves = this._getStorageJSON('leaves') || [];
+      this.payrolls = this._getStorageJSON('payrolls') || [];
+      this.cctConfigs = this._getStorageJSON('cctConfigs') || {};
     } else {
       const storedCompanies = this._getStorageJSON('companies');
       const storedUsers = this._getStorageJSON('users');
@@ -44,6 +50,8 @@ class Store {
       const storedCourses = this._getStorageJSON('courses');
       const storedEpp = this._getStorageJSON('eppDeliveries');
       const storedLeaves = this._getStorageJSON('leaves');
+      const storedPayrolls = this._getStorageJSON('payrolls');
+      const storedCct = this._getStorageJSON('cctConfigs');
 
       this.companies = (storedCompanies && storedCompanies.length > 0) ? storedCompanies : JSON.parse(JSON.stringify(INITIAL_COMPANIES));
       this.users = (storedUsers && storedUsers.length > 0) ? storedUsers : JSON.parse(JSON.stringify(INITIAL_USERS));
@@ -51,6 +59,8 @@ class Store {
       this.courses = (storedCourses && storedCourses.length > 0) ? storedCourses : JSON.parse(JSON.stringify(INITIAL_COURSES));
       this.eppDeliveries = (storedEpp && storedEpp.length > 0) ? storedEpp : JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
       this.leaves = (storedLeaves && storedLeaves.length > 0) ? storedLeaves : JSON.parse(JSON.stringify(INITIAL_LEAVES));
+      this.payrolls = (storedPayrolls && storedPayrolls.length > 0) ? storedPayrolls : JSON.parse(JSON.stringify(INITIAL_PAYROLLS));
+      this.cctConfigs = (storedCct && Object.keys(storedCct).length > 0) ? storedCct : {};
 
       this._saveAll();
     }
@@ -411,6 +421,8 @@ class Store {
     this.courses = [];
     this.eppDeliveries = [];
     this.leaves = [];
+    this.payrolls = [];
+    this.cctConfigs = {};
     this.activeSession = null;
 
     this._setStorageItem(PURGE_FLAG_KEY, 'true');
@@ -426,6 +438,8 @@ class Store {
     this.courses = JSON.parse(JSON.stringify(INITIAL_COURSES));
     this.eppDeliveries = JSON.parse(JSON.stringify(INITIAL_EPP_DELIVERIES));
     this.leaves = JSON.parse(JSON.stringify(INITIAL_LEAVES));
+    this.payrolls = JSON.parse(JSON.stringify(INITIAL_PAYROLLS));
+    this.cctConfigs = {};
 
     // Sesión por defecto en demo para pruebas inmediatas
     this.activeSession = {
@@ -629,6 +643,243 @@ class Store {
     return true;
   }
 
+  // --- Módulo Liquidación de Sueldos & Recibos Digitales ---
+  getPayrolls() {
+    if (!this.isAuthenticated()) return [];
+    if (this.activeSession.role === 'EMPLOYEE') {
+      const empId = this.activeSession.employeeId;
+      return this.payrolls
+        .filter(p => p.companyId === this.activeSession.companyId && p.payslips.some(ps => ps.employeeId === empId))
+        .map(p => ({
+          ...p,
+          payslips: p.payslips.filter(ps => ps.employeeId === empId)
+        }));
+    }
+    return this.payrolls.filter(p => p.companyId === this.activeSession.companyId);
+  }
+
+  getPayrollById(id) {
+    if (!this.isAuthenticated()) return null;
+    const payroll = this.payrolls.find(p => p.id === id && p.companyId === this.activeSession.companyId);
+    if (!payroll) return null;
+    if (this.activeSession.role === 'EMPLOYEE') {
+      const empId = this.activeSession.employeeId;
+      return {
+        ...payroll,
+        payslips: payroll.payslips.filter(ps => ps.employeeId === empId)
+      };
+    }
+    return payroll;
+  }
+
+  getPayslips() {
+    if (!this.isAuthenticated()) return [];
+    const payrolls = this.getPayrolls();
+    const list = [];
+    for (const p of payrolls) {
+      for (const ps of p.payslips) {
+        list.push({ ...ps, payrollPeriod: p.periodStr, payrollStatus: p.status });
+      }
+    }
+    return list;
+  }
+
+  getPayslipById(payslipId) {
+    if (!this.isAuthenticated()) return null;
+    const payslips = this.getPayslips();
+    return payslips.find(ps => ps.id === payslipId) || null;
+  }
+
+  runPayroll({ period, periodStr, periodType = 'MONTHLY', paymentDate = null, novedadesMap = {} }) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('Solo el Administrador de RRHH puede ejecutar liquidaciones de sueldo.');
+    }
+
+    const employees = this.getEmployees().filter(e => e.active);
+    if (employees.length === 0) {
+      throw new Error('No hay colaboradores activos para liquidar.');
+    }
+
+    const payrollId = `pay_${Date.now()}`;
+    const pStr = periodStr || period || '2026-11';
+    const depositDate = paymentDate || new Date().toISOString().split('T')[0];
+
+    const payslips = [];
+    let batchBruto = 0;
+    let batchRemunerativo = 0;
+    let batchNoRemunerativo = 0;
+    let batchDescuentos = 0;
+    let batchNeto = 0;
+    let batchContribuciones = 0;
+
+    for (const emp of employees) {
+      const empNovedades = novedadesMap[emp.id] || {};
+      const empLeaves = this.getLeavesByEmployee(emp.id);
+
+      const calc = PayrollEngine.calculateEmployeePayroll({
+        employee: emp,
+        period: { periodStr: pStr, type: periodType },
+        cctConfig: this.cctConfigs[emp.cctId] || null,
+        novedades: empNovedades,
+        leaves: empLeaves
+      });
+
+      const psId = `ps_${emp.id}_${Date.now()}`;
+      const payslip = {
+        id: psId,
+        companyId: this.activeSession.companyId,
+        payrollId,
+        employeeId: emp.id,
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        cuil: calc.cuil,
+        cctId: calc.cctId,
+        cctName: calc.cctName,
+        cctCategory: calc.cctCategory,
+        periodStr: pStr,
+        periodType,
+        bank: calc.bank,
+        cbu: calc.cbu,
+        depositDate,
+        status: 'PENDING_SIGNATURE', // Listo para firma digital
+        signedAt: null,
+        signature: null,
+        signatureHash: null,
+        ipAddress: null,
+        totalRemunerativo: calc.totalRemunerativo,
+        totalNoRemunerativo: calc.totalNoRemunerativo,
+        totalBruto: calc.totalBruto,
+        totalDescuentos: calc.totalDescuentos,
+        totalNeto: calc.totalNeto,
+        netoInWords: calc.netoInWords,
+        employerContributions: calc.employerContributions,
+        items: calc.items
+      };
+
+      payslips.push(payslip);
+
+      batchBruto += calc.totalBruto;
+      batchRemunerativo += calc.totalRemunerativo;
+      batchNoRemunerativo += calc.totalNoRemunerativo;
+      batchDescuentos += calc.totalDescuentos;
+      batchNeto += calc.totalNeto;
+      batchContribuciones += calc.employerContributions.total;
+    }
+
+    const newPayroll = {
+      id: payrollId,
+      companyId: this.activeSession.companyId,
+      period: period || pStr,
+      periodStr: pStr,
+      periodType,
+      runNumber: this.payrolls.filter(p => p.companyId === this.activeSession.companyId && p.period === period).length + 1,
+      status: 'EMITTED',
+      createdAt: new Date().toISOString(),
+      sealedAt: new Date().toISOString(),
+      sealedBy: this.activeSession.name || 'Administrador RRHH',
+      bankPaymentDate: depositDate,
+      totalBruto: batchBruto,
+      totalRemunerativo: batchRemunerativo,
+      totalNoRemunerativo: batchNoRemunerativo,
+      totalDescuentos: batchDescuentos,
+      totalNeto: batchNeto,
+      totalContribucionesPatronales: batchContribuciones,
+      payslips
+    };
+
+    this.payrolls.unshift(newPayroll);
+    this._saveAll();
+    this.notify();
+    return newPayroll;
+  }
+
+  sealPayrollBatch(payrollId) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('Solo el Administrador de RRHH puede sellar lotes de liquidación.');
+    }
+
+    const payroll = this.payrolls.find(p => p.id === payrollId && p.companyId === this.activeSession.companyId);
+    if (!payroll) throw new Error('Liquidación no encontrada.');
+
+    payroll.status = 'EMITTED';
+    payroll.sealedAt = new Date().toISOString();
+    payroll.sealedBy = this.activeSession.name || 'Administrador RRHH';
+
+    this._saveAll();
+    this.notify();
+    return payroll;
+  }
+
+  signPayslip(payrollId, payslipId, { signature, signatureHash, ipAddress = '127.0.0.1' }) {
+    if (!this.isAuthenticated()) {
+      throw new Error('Debe iniciar sesión para firmar el recibo de sueldo.');
+    }
+
+    const payroll = this.payrolls.find(p => p.id === payrollId && p.companyId === this.activeSession.companyId);
+    if (!payroll) throw new Error('Liquidación no encontrada.');
+
+    const payslip = payroll.payslips.find(ps => ps.id === payslipId);
+    if (!payslip) throw new Error('Recibo de sueldo no encontrado.');
+
+    // Confinamiento: El empleado solo puede firmar su propio recibo
+    if (this.activeSession.role === 'EMPLOYEE' && payslip.employeeId !== this.activeSession.employeeId) {
+      throw new Error('No autorizado para firmar recibos de otros colaboradores.');
+    }
+
+    payslip.status = 'SIGNED';
+    payslip.signedAt = new Date().toISOString();
+    payslip.signature = signature;
+    payslip.signatureHash = signatureHash;
+    payslip.ipAddress = ipAddress;
+
+    this._saveAll();
+    this.notify();
+    return payslip;
+  }
+
+  getCctCatalog() {
+    const catalog = JSON.parse(JSON.stringify(CCT_CATALOG));
+    for (const [cctId, overrides] of Object.entries(this.cctConfigs)) {
+      if (catalog[cctId]) {
+        catalog[cctId] = { ...catalog[cctId], ...overrides };
+      }
+    }
+    return catalog;
+  }
+
+  updateCctCategory(cctId, categoryId, newBasicSalary) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('Solo el Administrador de RRHH puede actualizar escalas paritarias.');
+    }
+
+    if (!this.cctConfigs[cctId]) {
+      this.cctConfigs[cctId] = JSON.parse(JSON.stringify(CCT_CATALOG[cctId] || {}));
+    }
+
+    const cat = this.cctConfigs[cctId].categories.find(c => c.id === categoryId);
+    if (cat) {
+      cat.basicSalary = Number(newBasicSalary);
+      if (cat.hourlyRate) cat.hourlyRate = Math.round(Number(newBasicSalary) / 176);
+    }
+
+    this._saveAll();
+    this.notify();
+    return this.cctConfigs[cctId];
+  }
+
+  deletePayroll(payrollId) {
+    if (!this.isAuthenticated() || this.activeSession.role !== 'HR_ADMIN') {
+      throw new Error('Solo el Administrador de RRHH puede eliminar liquidaciones.');
+    }
+
+    const index = this.payrolls.findIndex(p => p.id === payrollId && p.companyId === this.activeSession.companyId);
+    if (index === -1) return false;
+
+    this.payrolls.splice(index, 1);
+    this._saveAll();
+    this.notify();
+    return true;
+  }
+
   // --- Storage Internals ---
   _saveAll() {
     this._setStorageJSON('companies', this.companies);
@@ -637,6 +888,8 @@ class Store {
     this._setStorageJSON('courses', this.courses);
     this._setStorageJSON('eppDeliveries', this.eppDeliveries);
     this._setStorageJSON('leaves', this.leaves);
+    this._setStorageJSON('payrolls', this.payrolls);
+    this._setStorageJSON('cctConfigs', this.cctConfigs);
     if (this.activeSession) {
       this._setStorageJSON('session', this.activeSession);
     }

@@ -8,6 +8,7 @@ import { ExpirationEngine } from '../src/modules/compliance/expirationEngine.js'
 import { Exporter } from '../src/modules/reports/exporter.js';
 import { DigitalSignaturePad } from '../src/utils/signature.js';
 import { LeaveEngine } from '../src/modules/leaves/leaveEngine.js';
+import { LsdExporter } from '../src/modules/payroll/lsdExporter.js';
 
 export async function runE2ETests(harness) {
   store.restoreDemoData();
@@ -161,4 +162,65 @@ export async function runE2ETests(harness) {
   const balanceChofer = LeaveEngine.calculateVacationBalance(newDriver, allDriverLeaves, 2026);
   harness.assert(balanceChofer.takenDays === 7, 'E2E Paso 12: Saldo refleja 7 días tomados');
   harness.assert(balanceChofer.remainingDays === balanceChofer.totalEntitledDays - 7, 'E2E Paso 12: Saldo remanente descontado con exactitud');
+
+  // 13. Flujo Completo de Liquidación de Sueldos & Firma Digital de Recibos (LCT 20.744)
+  // Admin corre liquidación de Noviembre 2026 para TransAndina Logística
+  store.setSession({
+    userId: 'usr_admin_transandina',
+    role: 'HR_ADMIN',
+    companyId: 'comp_logistica',
+    token: 'ADMIN_TOKEN'
+  });
+
+  newDriver.cctId = 'CCT_40_89';
+  newDriver.cctCategoryId = 'CHOF_1';
+  newDriver.cuil = '20-35998112-4';
+  newDriver.bank = 'Banco de la Nación Argentina';
+  newDriver.cbu = '0110599520000035998112';
+
+  const e2ePayroll = store.runPayroll({
+    period: '2026-11',
+    periodStr: 'Noviembre 2026',
+    periodType: 'MONTHLY',
+    novedadesMap: {
+      [newDriver.id]: { kmLargaDistancia: 3200 }
+    }
+  });
+
+  harness.assert(e2ePayroll && e2ePayroll.id.startsWith('pay_'), 'E2E Paso 13: Corrida de liquidación ejecutada');
+  const driverPayslip = e2ePayroll.payslips.find(ps => ps.employeeId === newDriver.id);
+  harness.assert(driverPayslip !== undefined, 'E2E Paso 13: Recibo generado para el nuevo chofer');
+  harness.assert(driverPayslip.status === 'PENDING_SIGNATURE', 'E2E Paso 13: Recibo inicia en estado PENDING_SIGNATURE');
+  harness.assert(driverPayslip.totalNeto > 1000000, 'E2E Paso 13: Sueldo neto liquidado según escala Camioneros');
+
+  // Exportar LSD ARCA oficial y verificar estructura
+  const transandinaComp = store.companies.find(c => c.id === 'comp_logistica');
+  const lsdTxt = LsdExporter.generateLsdText(transandinaComp, e2ePayroll);
+  const lsdRows = lsdTxt.replace(/\r?\n$/, '').split('\r\n');
+  harness.assert(lsdRows.length >= 4, 'E2E Paso 13: LSD contiene registros de exportación para ARCA');
+  harness.assert(lsdRows.every(r => r.length === 500), 'E2E Paso 13: Toda línea de LSD cumple 500 caracteres RG 3781');
+
+  // Chofer inicia sesión en el Portal Móvil y firma su recibo
+  store.setSession({
+    userId: newDriver.id,
+    employeeId: newDriver.id,
+    role: 'EMPLOYEE',
+    companyId: 'comp_logistica',
+    token: 'EMP_TOKEN'
+  });
+
+  const choferPayslips = store.getPayslips();
+  const psToSign = choferPayslips.find(ps => ps.id === driverPayslip.id);
+  harness.assert(psToSign !== undefined, 'E2E Paso 13: Chofer visualiza su recibo en su portal móvil');
+
+  const payslipHash = await DigitalSignaturePad.computeForensicHash(dummySig, driverPayslip.id, new Date().toISOString());
+  const signedResult = store.signPayslip(e2ePayroll.id, driverPayslip.id, {
+    signature: dummySig,
+    signatureHash: payslipHash,
+    ipAddress: '181.44.120.45'
+  });
+
+  harness.assert(signedResult.status === 'SIGNED', 'E2E Paso 13: Recibo de sueldo firmado electrónicamente');
+  harness.assert(signedResult.signatureHash === payslipHash, 'E2E Paso 13: Hash forense de recibo estampado');
+  harness.assert(signedResult.ipAddress === '181.44.120.45', 'E2E Paso 13: Auditoría IP registrada con éxito');
 }

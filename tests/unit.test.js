@@ -11,6 +11,9 @@ import { EPP_CATALOG } from '../src/state/initialData.js';
 import { EppEngine } from '../src/modules/epp/eppEngine.js';
 import { ImageUploadService } from '../src/utils/imageUploadService.js';
 import { LeaveEngine, LEAVE_TYPES, LEAVE_STATUS } from '../src/modules/leaves/leaveEngine.js';
+import { PayrollEngine, PERIOD_TYPES } from '../src/modules/payroll/payrollEngine.js';
+import { CCT_CATALOG } from '../src/modules/payroll/cctCatalog.js';
+import { LsdExporter } from '../src/modules/payroll/lsdExporter.js';
 
 export async function runUnitTests(harness) {
   const refDate = new Date('2026-11-11T00:00:00.000Z');
@@ -210,4 +213,164 @@ export async function runUnitTests(harness) {
   harness.assert(LEAVE_TYPES.VACATION.isPaid === true, 'Vacaciones declaradas con goce de haberes');
   harness.assert(LEAVE_TYPES.MEDICAL.requiresCertificate === true, 'Licencia médica exige certificado obligatorio');
   harness.assert(LEAVE_STATUS.APPROVED.code === 'APPROVED', 'Estado APPROVED normativo disponible');
+
+  // --- Capa 1: Motor de Liquidación de Sueldos Multiconvenio (LCT 20.744) ---
+  // A. Catálogo Multiconvenio Oficial de los 5 CCTs
+  harness.assert(CCT_CATALOG.CCT_130_75 && CCT_CATALOG.CCT_130_75.name.includes('FAECYS'), 'CCT 130/75 Comercio presente con FAECYS');
+  harness.assert(CCT_CATALOG.CCT_40_89 && CCT_CATALOG.CCT_40_89.name.includes('FEDACAM'), 'CCT 40/89 Camioneros presente con FEDACAM');
+  harness.assert(CCT_CATALOG.CCT_244_94 && CCT_CATALOG.CCT_244_94.name.includes('STIA'), 'CCT 244/94 Alimentación presente con STIA');
+  harness.assert(CCT_CATALOG.CCT_76_75 && CCT_CATALOG.CCT_76_75.name.includes('UOCRA'), 'CCT 76/75 Construcción presente con UOCRA');
+  harness.assert(CCT_CATALOG.CCT_260_75 && CCT_CATALOG.CCT_260_75.name.includes('UOM'), 'CCT 260/75 Metalúrgicos presente con UOM');
+
+  // B. Liquidación CCT 130/75 (Comercio - Administrativo A con 5 años de antigüedad)
+  const empComercio = {
+    id: 'emp_comercio',
+    firstName: 'Martín',
+    lastName: 'Gómez',
+    cuil: '20-33445566-9',
+    hireDate: '2021-11-01', // 5 años
+    cctId: 'CCT_130_75',
+    cctCategoryId: 'ADM_A'
+  };
+  const liqComercio = PayrollEngine.calculateEmployeePayroll({
+    employee: empComercio,
+    period: { periodStr: '2026-11', type: 'MONTHLY' },
+    novedades: { presentismo: true }
+  });
+
+  harness.assert(liqComercio.totalRemunerativo > 850000, 'Comercio: Total remunerativo incluye básico + presentismo + antigüedad');
+  harness.assert(liqComercio.totalDescuentos > 0, 'Comercio: Aplica deducciones de ley');
+  harness.assert(liqComercio.totalNeto === liqComercio.totalBruto - liqComercio.totalDescuentos, 'Comercio: Neto = Bruto - Retenciones');
+  harness.assert(liqComercio.items.some(i => i.code === '1010' && i.description.includes('Antigüedad')), 'Comercio: Rubro de antigüedad 1% por año liquidado');
+  harness.assert(liqComercio.items.some(i => i.code === '1020' && i.description.includes('Presentismo')), 'Comercio: Rubro de presentismo (Art. 40 CCT 130/75) liquidado');
+
+  // C. Liquidación CCT 40/89 (Camioneros - Chofer Primera con viáticos y km)
+  const empCamioneros = {
+    id: 'emp_camionero',
+    firstName: 'Esteban',
+    lastName: 'Rojas',
+    cuil: '20-29881123-4',
+    hireDate: '2018-05-10', // 8 años
+    cctId: 'CCT_40_89',
+    cctCategoryId: 'CHOF_1'
+  };
+  const liqCamioneros = PayrollEngine.calculateEmployeePayroll({
+    employee: empCamioneros,
+    period: { periodStr: '2026-11', type: 'MONTHLY' },
+    novedades: { kmLargaDistancia: 3500 }
+  });
+
+  harness.assert(liqCamioneros.totalNoRemunerativo > 0, 'Camioneros: Contiene rubros no remunerativos (viáticos y comida Art. 4.1)');
+  harness.assert(liqCamioneros.items.some(i => i.code === '2010'), 'Camioneros: Viático comida liquidado');
+  harness.assert(liqCamioneros.items.some(i => i.code === '1039'), 'Camioneros: Adicional por km de larga distancia liquidado');
+
+  // D. Liquidación CCT 76/75 (UOCRA - Quincenal Oficial Albañil con Fondo Cese Laboral)
+  const empUocra = {
+    id: 'emp_uocra',
+    firstName: 'Ramón',
+    lastName: 'Vargas',
+    cuil: '20-31223344-5',
+    hireDate: '2026-03-01',
+    cctId: 'CCT_76_75',
+    cctCategoryId: 'OFIC'
+  };
+  const liqUocra = PayrollEngine.calculateEmployeePayroll({
+    employee: empUocra,
+    period: { periodStr: '2026-11-Q1', type: 'BIWEEKLY_1' },
+    novedades: { workedHours: 88 }
+  });
+
+  harness.assert(liqUocra.periodType === 'BIWEEKLY_1', 'UOCRA: Período quincenal liquidado correctamente');
+  harness.assert(liqUocra.items.some(i => i.code === '1000' && i.quantity === 88), 'UOCRA: Jornal quincenal liquidado por 88 horas');
+  harness.assert(liqUocra.items.some(i => i.code === '5040' && i.description.includes('Cese Laboral')), 'UOCRA: Aporte Fondo Cese Laboral (Ley 22.250) liquidado');
+
+  // E. Liquidación CCT 244/94 (Alimentación - Operario Calificado)
+  const empAlimentacion = {
+    id: 'emp_stia',
+    firstName: 'Lucía',
+    lastName: 'Méndez',
+    cuil: '27-36778899-2',
+    hireDate: '2023-01-15',
+    cctId: 'CCT_244_94',
+    cctCategoryId: 'OPER_CALIF'
+  };
+  const liqAlimentacion = PayrollEngine.calculateEmployeePayroll({
+    employee: empAlimentacion,
+    period: { periodStr: '2026-11', type: 'MONTHLY' },
+    novedades: { presentismo: true }
+  });
+  harness.assert(liqAlimentacion.cctId === 'CCT_244_94', 'Alimentación: CCT 244/94 correctamente referenciado');
+  harness.assert(liqAlimentacion.totalBruto > 0, 'Alimentación: Bruto calculado conforme a escala STIA');
+
+  // F. Liquidación CCT 260/75 (UOM - Oficial Múltiple Metalúrgico)
+  const empUom = {
+    id: 'emp_uom',
+    firstName: 'Jorge',
+    lastName: 'Herrera',
+    cuil: '20-27665544-1',
+    hireDate: '2020-04-01',
+    cctId: 'CCT_260_75',
+    cctCategoryId: 'OF_MULT'
+  };
+  const liqUom = PayrollEngine.calculateEmployeePayroll({
+    employee: empUom,
+    period: { periodStr: '2026-11', type: 'MONTHLY' },
+    novedades: { overtimeHours50: 10, overtimeHours100: 4 }
+  });
+  harness.assert(liqUom.cctId === 'CCT_260_75', 'UOM: CCT 260/75 referenciado correctamente');
+  harness.assert(liqUom.items.some(i => i.code === '1040'), 'UOM: Horas extras al 50% liquidadas');
+  harness.assert(liqUom.items.some(i => i.code === '1045'), 'UOM: Horas extras al 100% liquidadas');
+
+  // G. Liquidación de SAC (Aguinaldo semestral)
+  const liqSac = PayrollEngine.calculateEmployeePayroll({
+    employee: empComercio,
+    period: { periodStr: '2026-06', type: 'SAC' },
+    novedades: { bestHalfYearSalary: 1200000, semesterDaysWorked: 180 }
+  });
+  harness.assert(liqSac.periodType === 'SAC', 'SAC: Tipo de período SAC asignado');
+  harness.assert(liqSac.totalRemunerativo === 600000, 'SAC: 50% de la mejor remuneración del semestre (600.000)');
+
+  // H. Plus Vacacional (División por 25 según Art. 155 LCT)
+  const liqVac = PayrollEngine.calculateEmployeePayroll({
+    employee: empComercio,
+    period: { periodStr: '2026-12', type: 'MONTHLY' },
+    novedades: { vacationDaysTaken: 14 }
+  });
+  const vacItem = liqVac.items.find(i => i.code === '1060');
+  harness.assert(vacItem !== undefined, 'LCT Art. 155: Rubro de adelanto/plus vacacional generado');
+  harness.assert(vacItem.description.includes('Plus Vacacional'), 'LCT Art. 155: Descripción formal de plus vacacional');
+
+  // I. Conversión de montos a palabras (numberToSpanishWords)
+  harness.assert(PayrollEngine.numberToSpanishWords(0).includes('Cero pesos'), 'Conversor de letras: 0 pesos');
+  harness.assert(PayrollEngine.numberToSpanishWords(1000000).toLowerCase().includes('un millón'), 'Conversor de letras: 1 millón');
+  harness.assert(PayrollEngine.numberToSpanishWords(850430).toLowerCase().includes('ochocientos cincuenta mil cuatrocientos treinta'), 'Conversor de letras: 850.430 pesos');
+
+  // J. Exportador LSD ARCA / AFIP (Resolución General 3781 - 500 bytes por línea)
+  const mockCompany = {
+    name: 'TransAndina Logística SA',
+    cuit: '30-68954120-7'
+  };
+  const mockPayrollRun = {
+    id: 'run_test_lsd',
+    period: '2026-11',
+    periodType: 'MONTHLY',
+    runNumber: 1,
+    payslips: [liqComercio, liqCamioneros]
+  };
+  const lsdOutput = LsdExporter.generateLsdText(mockCompany, mockPayrollRun);
+  const lsdLines = lsdOutput.replace(/\r?\n$/, '').split('\r\n');
+
+  harness.assert(lsdLines.length >= 4, 'LSD: Archivo contiene múltiples registros (01, 02, 03, 04)');
+  harness.assert(lsdLines[0].startsWith('01'), 'LSD: Primer registro es 01 (Carátula)');
+  harness.assert(lsdLines.some(l => l.startsWith('02')), 'LSD: Contiene registro 02 (Trabajadores)');
+  harness.assert(lsdLines.some(l => l.startsWith('03')), 'LSD: Contiene registro 03 (Conceptos liquidación)');
+  harness.assert(lsdLines.some(l => l.startsWith('04')), 'LSD: Contiene registro 04 (Totales generales)');
+
+  let lineLengthMismatch = 0;
+  for (const line of lsdLines) {
+    if (line.length !== 500) {
+      lineLengthMismatch++;
+    }
+  }
+  harness.assert(lineLengthMismatch === 0, 'LSD Invariante Normativo: Cada línea mide exactamente 500 caracteres (RG AFIP 3781)');
 }

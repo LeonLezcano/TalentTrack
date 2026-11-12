@@ -1,8 +1,44 @@
-# 👥 TalentTrack — SaaS de Recursos Humanos, Skills, EPP, Vacaciones & Capacitaciones
+# 👥 TalentTrack — SaaS de Recursos Humanos, Liquidación de Sueldos, EPP, Vacaciones & Capacitaciones
 
-> **Versión:** `v1.0.10` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 144/144 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
+> **Versión:** `v1.0.11` • **Estándar:** `AiAppFactory Standard` • **Arquitectura:** PWA Offline-First Multi-Empresa • **Tests:** 204/204 (100% PASS) • **AppSec:** 100/100 (0 vulnerabilidades)
 
-**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y servicios) que necesitan gestionar de manera integral sus legajos laborales, explotar habilidades previas ocultas para búsquedas internas, planificar capacitaciones normativas con firma digital táctil, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, gestionar el ciclo completo de vacaciones y licencias médicas (LCT 20.744) con cálculo legal según antigüedad y adjunto de certificados en la nube, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones vehiculares o sanitarias bajo un estricto semáforo preventivo con fotos respaldatorias adjuntas.
+**TalentTrack** es una plataforma SaaS de Recursos Humanos diseñada para empresas operativas (logística, alimentos, industria, distribución y construcción) que necesitan liquidar haberes multiconvenio (LCT 20.744) bajo las escalas paritarias de los 5 CCTs más importantes de Argentina, exportar el archivo plano normativo de 500 bytes para el **Libro de Sueldos Digital (LSD ARCA / AFIP)**, emitir recibos de sueldo oficiales (Art. 140 LCT) con constancia de acreditación bancaria (Art. 124 LCT) y firma digital táctil con validez judicial (Res. MTEySS 346/2019 y Ley 25.506), gestionar el ciclo completo de vacaciones y licencias médicas con cálculo de antigüedad y adjunto de certificados, controlar entregas de EPP bajo Resolución SRT 299/11 con constancias selladas criptográficamente, despachar alertas preventivas por WhatsApp, y monitorear habilitaciones bajo un estricto semáforo preventivo.
+
+---
+
+## 🌟 Capacidades Clave del Sistema
+
+### 1. 💵 Módulo de Liquidación de Sueldos Multiconvenio (LCT 20.744)
+- **Top 5 Convenios Colectivos de Trabajo (CCTs) de Argentina:**
+  - **Comercio (FAECYS - CCT 130/75):** Básico por categoría, presentismo (8.33% Art. 40), antigüedad (1% anual), aportes a SEC y OSECAC.
+  - **Camioneros (FEDACAM - CCT 40/89):** Categorías de choferes (primera, semirremolques, larga distancia), adicional por kilómetros recorridos (Art. 4.2.3), plus de descarga en ruta y viático especial comida no remunerativo (Art. 4.1.4).
+  - **Industria de la Alimentación (STIA - CCT 244/94):** Operarios de elaboración y envasado, presentismo de planta (9%), adicionales por cámara frigorífica y congelados (12%), antigüedad (1.5% anual).
+  - **Construcción (UOCRA - CCT 76/75 & Ley 22.250):** Jornalizados por hora, quincenas típicas (88 hs), presentismo quincenal y aporte al Fondo de Cese Laboral IERIC (12% 1er año / 8% subsiguientes).
+  - **Metalúrgicos (UOM - CCT 260/75):** Oficiales múltiples, torneros y soldadores TIG, adicional por título secundario técnico (8%), horas extras al 50% y 100%.
+- **Retenciones de Ley Automáticas:** Deducción legal exacta de Jubilación SIPA Ley 24.241 (11% con tope máximo ARCA), INSSJyP PAMI Ley 19.032 (3%), Obra Social Ley 23.660 (3%) y Cuota Sindical según CCT.
+- **Contribuciones Patronales Informativas (F.931):** Cálculo de SIPA Patronal (10.77%), INSSJyP Patronal (1.59%), Asignaciones Familiares (4.70%), Fondo Nacional de Empleo (0.94%), Obra Social Patronal (6.00%), ART y Seguro Colectivo de Vida Obligatorio.
+- **Plus Vacacional y SAC (Aguinaldo):** Cómputo del plus vacacional por división por 25 (Art. 155 LCT) y liquidación del Sueldo Anual Complementario (50% de la mayor remuneración devengada en el semestre).
+- **Conversor Numérico a Letras en Español:** Generación automática del importe neto en palabras (Art. 140 Inc. b LCT) en pesos y centavos.
+- **Escalas Paritarias Editables:** Panel de configuración donde RRHH y contadores pueden actualizar sueldos básicos y adicionales sin tocar código.
+
+### 2. 📄 Exportador Normativo Libro de Sueldos Digital (LSD ARCA / AFIP)
+- **Resolución General AFIP 3781:** Generación del archivo plano `.txt` con longitud fija estricta de **500 caracteres por línea**:
+  - **Registro 01 (Carátula):** CUIT empleador, período AAAAMM, tipo de liquidación (M/Q/S), número de liquidación.
+  - **Registro 02 (Trabajadores):** CUIL, situación de revista, modalidad contractual y las 10 bases imponibles de seguridad social.
+  - **Registro 03 (Conceptos):** Desglose línea por línea de haberes remunerativos (C), no remunerativos (N) y retenciones/descuentos (D) con códigos homologados ARCA.
+  - **Registro 04 (Totales):** Totales netos de la liquidación del colaborador.
+- **Descarga Directa en 1 Clic:** Botón de exportación inmediata listo para subir a la web con clave fiscal de ARCA.
+
+### 3. ✍️ Recibo de Sueldo Digital & Validez Legal de la Firma (Res. MTEySS 346/2019)
+- **Formato Oficial Art. 140 LCT:** Visualización y descarga del recibo formal con datos de la empresa, CUIT, período, CBU y banco de acreditación de haberes (Art. 124 LCT).
+- **Firma Digital / Electrónica Táctil:**
+  - Lienzo HTML5 Canvas para rúbrica manual del colaborador desde su smartphone o PC.
+  - Sellado criptográfico forense con hash SHA-256 inmutable, timestamp UTC y registro de dirección IP del dispositivo firmante.
+- **Doble Blindaje Legal ante la Justicia Laboral:**
+  1. *Acreditación de Pago (Art. 124 LCT):* La constancia bancaria en cuenta sueldo es la prueba madre e irrebatible de la entrega del dinero.
+  2. *Recepción y Conformidad (Res. MTEySS 346/2019 & Ley 25.506):* La firma electrónica con rastro forense e IP demuestra la notificación y entrega del recibo al trabajador.
+  3. *Invariante Art. 260 LCT:* El recibo firmado se considera legalmente "pago a cuenta" del total adeudado, garantizando transparencia y previniendo nulidades judiciales.
+- **Despacho Directo por WhatsApp:** Envío de notificación con aviso de liquidación disponible y recordatorio de firma con 1 clic.
 
 ---
 
@@ -132,7 +168,7 @@ TalentTrack/
 
 ## 🧪 Batería de Pruebas Multi-Capa (Test Guardian)
 
-TalentTrack cuenta con una suite completa de **78 pruebas automatizadas** que cubren las 5 capas obligatorias con 100% de aprobación:
+TalentTrack cuenta con una suite completa de **204 pruebas automatizadas** que cubren las 5 capas obligatorias con 100% de aprobación:
 
 ```bash
 pnpm test
@@ -140,12 +176,12 @@ pnpm test
 
 | Capa | Descripción | Tests | Estado |
 |---|---|:---:|:---:|
-| **Capa 1** | Unitarias, Fuzzing caótico, algoritmos de semáforo, hashing, EPP y LeaveEngine LCT 20.744 | 42 | PASS |
-| **Capa 2** | Integración, aislamiento multi-empresa, ciclo EPP y gestión de licencias | 36 | PASS |
+| **Capa 1** | Unitarias, Fuzzing caótico, algoritmos de semáforo, hashing, EPP, Vacaciones, Motor Multiconvenio (5 CCTs), Plus Vacacional, SAC, Letras y LSD 500 bytes | 69 | PASS |
+| **Capa 2** | Integración, aislamiento multi-empresa, ciclo EPP, gestión de licencias, liquidación de sueldos, firma digital y paritarias | 58 | PASS |
 | **Capa 3** | Componentes, Talent Hunter, matriz de puestos y actas oficiales SRT 299/11 | 15 | PASS |
 | **Capa 4** | Seguridad XSS en DOM sinks, cabeceras en `firebase.json` y escaneo de secretos | 12 | PASS |
-| **Capa 5** | End-to-End: Alta -> Carnet -> Alerta -> Curso -> Firma -> SRT 299 -> Vacaciones LCT | 39 | PASS |
-| **Total** | **Suite Completa Automatizada** | **144** | **100% PASS** |
+| **Capa 5** | End-to-End: Alta -> Carnet -> Alerta -> Curso -> Firma -> SRT 299 -> Vacaciones -> Liquidación -> LSD ARCA -> Firma Recibo | 50 | PASS |
+| **Total** | **Suite Completa Automatizada** | **204** | **100% PASS** |
 
 ---
 

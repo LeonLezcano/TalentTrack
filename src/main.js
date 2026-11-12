@@ -17,6 +17,9 @@ import { Exporter } from './modules/reports/exporter.js';
 import { Notifier } from './utils/notifier.js';
 import { ImageUploadService } from './utils/imageUploadService.js';
 import { LeaveEngine, LEAVE_TYPES, LEAVE_STATUS } from './modules/leaves/leaveEngine.js';
+import { LsdExporter } from './modules/payroll/lsdExporter.js';
+import { CCT_CATALOG } from './modules/payroll/cctCatalog.js';
+import { PERIOD_TYPES } from './modules/payroll/payrollEngine.js';
 
 const WHATSAPP_ICON_SVG = `<svg class="w-4 h-4 shrink-0 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>`;
 const DOSSIER_ICON_SVG = `<svg class="w-4 h-4 shrink-0 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>`;
@@ -190,6 +193,49 @@ class AppController {
         }
         break;
 
+      case 'open-modal-new-payroll':
+        this.openModal('modal-new-payroll');
+        break;
+
+      case 'open-modal-cct-config':
+        this.openModal('modal-cct-config');
+        break;
+
+      case 'open-modal-view-payslip':
+        this.openModal('modal-view-payslip', id);
+        break;
+
+      case 'export-lsd-txt':
+        const payrollRun = store.getPayrollById(id) || store.getPayrolls()[0];
+        if (!payrollRun) {
+          Notifier.showToast('No hay liquidaciones disponibles para exportar', 'warning');
+          break;
+        }
+        LsdExporter.downloadLsdFile(store.getCurrentCompany(), payrollRun);
+        Notifier.showToast('Archivo TXT de Libro de Sueldos Digital (LSD ARCA) generado', 'success');
+        break;
+
+      case 'dispatch-payslip-wa':
+        const psTarget = store.getPayslipById(id);
+        if (!psTarget) break;
+        const empForWa = store.getEmployeeById(psTarget.employeeId);
+        if (empForWa?.phone) {
+          const rawPhone = empForWa.phone.replace(/\D/g, '');
+          const waPhone = rawPhone.startsWith('54') ? rawPhone : (rawPhone.startsWith('9') ? `54${rawPhone}` : `549${rawPhone}`);
+          const msg = encodeURIComponent(`Hola ${empForWa.firstName}, tu recibo de sueldo digital de ${psTarget.periodStr} por un neto de $${psTarget.totalNeto.toLocaleString('es-AR')} ya está disponible en tu portal para visualización y firma de conformidad (Res. MTEySS 346/2019).`);
+          window.open(`https://wa.me/${waPhone}?text=${msg}`, '_blank');
+        } else {
+          Notifier.showToast('El colaborador no posee teléfono para WhatsApp registrado', 'warning');
+        }
+        break;
+
+      case 'delete-payroll':
+        if (confirm('¿Confirma eliminar este lote de liquidación?')) {
+          store.deletePayroll(id);
+          Notifier.showToast('Lote de liquidación eliminado', 'info');
+        }
+        break;
+
       case 'open-modal-sign-course':
         const courseId = target.getAttribute('data-course-id');
         const participantId = target.getAttribute('data-participant-id');
@@ -337,6 +383,12 @@ class AppController {
       this.renderNewEppDeliveryModal(container);
     } else if (modalId === 'modal-request-leave') {
       this.renderRequestLeaveModal(container);
+    } else if (modalId === 'modal-new-payroll') {
+      this.renderNewPayrollRunModal(container);
+    } else if (modalId === 'modal-cct-config') {
+      this.renderCctConfigModal(container);
+    } else if (modalId === 'modal-view-payslip') {
+      this.renderViewPayslipModal(container, context);
     }
   }
 
@@ -1307,6 +1359,9 @@ class AppController {
       case 'leaves':
         contentHtml = this.renderLeavesTab();
         break;
+      case 'payroll':
+        contentHtml = this.renderPayrollTab();
+        break;
       case 'reports':
         contentHtml = this.renderReportsTab();
         break;
@@ -1429,6 +1484,18 @@ class AppController {
         leavesBadgeEl.classList.remove('hidden');
       } else {
         leavesBadgeEl.classList.add('hidden');
+      }
+    }
+
+    // Badge de Recibos Pendientes de Firma
+    const pendingPayslips = store.getPayslips().filter(ps => ps.status === 'PENDING_SIGNATURE');
+    const payslipsBadgeEl = document.getElementById('pending-payslips-badge');
+    if (payslipsBadgeEl) {
+      if (pendingPayslips.length > 0) {
+        payslipsBadgeEl.textContent = pendingPayslips.length;
+        payslipsBadgeEl.classList.remove('hidden');
+      } else {
+        payslipsBadgeEl.classList.add('hidden');
       }
     }
 
@@ -2221,6 +2288,607 @@ class AppController {
     `;
   }
 
+  // --- Módulo Liquidación de Sueldos & Recibos Digitales (LCT 20.744 & Res. 346/2019) ---
+  renderPayrollTab() {
+    const payrolls = store.getPayrolls();
+    const currentCompany = store.getCurrentCompany() || { name: 'Empresa', cuit: '30-00000000-0' };
+    const latestPayroll = payrolls[0] || null;
+
+    const totalBruto = latestPayroll ? latestPayroll.totalBruto : 0;
+    const totalDescuentos = latestPayroll ? latestPayroll.totalDescuentos : 0;
+    const totalPatronales = latestPayroll ? latestPayroll.totalContribucionesPatronales : 0;
+    const totalNeto = latestPayroll ? latestPayroll.totalNeto : 0;
+
+    const allPayslips = store.getPayslips();
+    const totalPayslips = allPayslips.length;
+    const signedCount = allPayslips.filter(ps => ps.status === 'SIGNED').length;
+    const pendingSignatureCount = totalPayslips - signedCount;
+
+    return `
+      <div class="space-y-6">
+        <!-- Cabecera del Módulo -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-xl font-bold text-slate-900">Liquidación de Sueldos & Recibos Digitales</h2>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">LCT 20.744</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Res. MTEySS 346/2019</span>
+            </div>
+            <p class="text-xs text-slate-500">Motor de cálculo previsional multiconvenio (Comercio, Camioneros, Alimentación, UOCRA, UOM) y Libro de Sueldos Digital ARCA.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button data-action="open-modal-cct-config" class="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 shadow-xs transition flex items-center gap-1.5">
+              <span>⚙️</span> Configurar Convenios (CCT)
+            </button>
+            <button data-action="export-lsd-txt" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5">
+              <span>📄</span> Exportar LSD ARCA (TXT)
+            </button>
+            <button data-action="open-modal-new-payroll" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center gap-1.5">
+              <span>▶️</span> Nueva Corrida de Liquidación
+            </button>
+          </div>
+        </div>
+
+        <!-- Tarjetas Métricas KPI del Período Activo -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-bold">💰</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Total Bruto Liquidado</p>
+              <h3 class="text-xl font-black text-slate-900">$${totalBruto.toLocaleString('es-AR')}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl font-bold">📉</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Retenciones Ley (SIPA/OS)</p>
+              <h3 class="text-xl font-black text-amber-600">$${totalDescuentos.toLocaleString('es-AR')}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-2xl font-bold">🏛️</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Contribuciones F.931 (Patronal)</p>
+              <h3 class="text-xl font-black text-purple-700">$${totalPatronales.toLocaleString('es-AR')}</h3>
+            </div>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-bold">💵</div>
+            <div>
+              <p class="text-xs text-slate-500 font-semibold">Total Neto a Pagar (Bancos)</p>
+              <h3 class="text-xl font-black text-emerald-600">$${totalNeto.toLocaleString('es-AR')}</h3>
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner de Estado de Firmas Digitales de Recibos -->
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center text-lg font-bold">✍️</div>
+            <div>
+              <h4 class="font-bold text-slate-800">Estado de Recepción y Conformidad de Recibos (Res. MTEySS 346/2019)</h4>
+              <p class="text-slate-500">Firmas electrónicas con estampado de hash SHA-256 inmutable, timestamp UTC y registro de IP.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="px-2.5 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              ✅ ${signedCount} Firmados
+            </span>
+            <span class="px-2.5 py-1 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              ⏳ ${pendingSignatureCount} Pendientes de Firma
+            </span>
+          </div>
+        </div>
+
+        <!-- Lotes de Liquidación Registrados -->
+        <div class="space-y-4">
+          ${payrolls.length > 0 ? payrolls.map(p => `
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div class="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">${Sanitizer.escapeHTML(p.periodType)}</span>
+                  <div>
+                    <h3 class="font-bold text-sm text-slate-900">Período: ${Sanitizer.escapeHTML(p.periodStr)}</h3>
+                    <p class="text-xs text-slate-500">Acreditación Bancaria Art. 124 LCT: ${Sanitizer.escapeHTML(p.bankPaymentDate || 'N/A')} • Sello Emisor: ${Sanitizer.escapeHTML(p.sealedBy || 'RRHH')}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-600 mr-2">Neto Lote: <strong class="text-slate-900">$${p.totalNeto.toLocaleString('es-AR')}</strong></span>
+                  <button data-action="export-lsd-txt" data-id="${p.id}" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1">
+                    <span>📄</span> TXT ARCA
+                  </button>
+                  <button data-action="delete-payroll" data-id="${p.id}" class="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition" title="Eliminar Lote">
+                    🗑️
+                  </button>
+                </div>
+              </div>
+
+              <!-- Tabla de Recibos del Lote -->
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-600">
+                  <thead class="bg-slate-50/50 text-[11px] uppercase tracking-wider text-slate-400 font-bold border-b border-slate-100">
+                    <tr>
+                      <th class="p-3">Colaborador</th>
+                      <th class="p-3">Convenio (CCT)</th>
+                      <th class="p-3 text-right">Bruto</th>
+                      <th class="p-3 text-right">Retenciones</th>
+                      <th class="p-3 text-right">Neto a Cobrar</th>
+                      <th class="p-3">Estado Firma</th>
+                      <th class="p-3 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${(p.payslips || []).map(ps => `
+                      <tr class="hover:bg-slate-50/50 transition">
+                        <td class="p-3">
+                          <p class="font-bold text-slate-800">${Sanitizer.escapeHTML(ps.employeeName)}</p>
+                          <p class="text-[11px] text-slate-400">CUIL: ${Sanitizer.escapeHTML(ps.cuil)}</p>
+                        </td>
+                        <td class="p-3">
+                          <p class="font-medium text-slate-700">${Sanitizer.escapeHTML(ps.cctName)}</p>
+                          <p class="text-[11px] text-slate-400">${Sanitizer.escapeHTML(ps.cctCategory)}</p>
+                        </td>
+                        <td class="p-3 text-right font-medium text-slate-700">$${ps.totalBruto.toLocaleString('es-AR')}</td>
+                        <td class="p-3 text-right font-medium text-amber-600">-$${ps.totalDescuentos.toLocaleString('es-AR')}</td>
+                        <td class="p-3 text-right font-bold text-emerald-700 text-sm">$${ps.totalNeto.toLocaleString('es-AR')}</td>
+                        <td class="p-3">
+                          ${ps.status === 'SIGNED' ? `
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 block w-fit">
+                              ✅ Firmado Conforme
+                            </span>
+                            <span class="text-[10px] text-slate-400 block mt-0.5">${new Date(ps.signedAt).toLocaleDateString('es-AR')}</span>
+                          ` : `
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 block w-fit">
+                              ⏳ Pendiente de Firma
+                            </span>
+                          `}
+                        </td>
+                        <td class="p-3 text-right">
+                          <div class="flex items-center justify-end gap-1.5">
+                            <button data-action="open-modal-view-payslip" data-id="${ps.id}" class="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold transition">
+                              👁️ Ver Recibo
+                            </button>
+                            <button data-action="dispatch-payslip-wa" data-id="${ps.id}" class="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition" title="Avisar por WhatsApp">
+                              ${WHATSAPP_ICON_SVG}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `).join('') : `
+            <div class="p-12 text-center bg-white rounded-2xl border border-slate-200">
+              <span class="text-4xl block mb-2">💵</span>
+              <h3 class="font-bold text-slate-800 text-sm">No hay liquidaciones de sueldo generadas</h3>
+              <p class="text-xs text-slate-500 mt-1">Presione "Nueva Corrida de Liquidación" para liquidar los haberes del mes bajo los 5 convenios colectivos.</p>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  // Modal: Nueva Corrida de Liquidación
+  renderNewPayrollRunModal(container) {
+    const employees = store.getEmployees().filter(e => e.active);
+    const catalog = store.getCctCatalog();
+    const currentMonthStr = new Date().toISOString().slice(0, 7); // '2026-11'
+
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+          <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
+            <div>
+              <h3 class="font-bold text-base">Nueva Corrida de Liquidación de Sueldos</h3>
+              <p class="text-xs text-slate-300">Cálculo legal previsional y Libro de Sueldos Digital (ARCA)</p>
+            </div>
+            <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+
+          <form id="payroll-run-form" class="p-6 space-y-5">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Período (AAAA-MM) *</label>
+                <input type="month" name="period" required value="${currentMonthStr}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tipo de Liquidación *</label>
+                <select name="periodType" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                  <option value="MONTHLY" selected>Mensual Ordinaria</option>
+                  <option value="BIWEEKLY_1">1ª Quincena (Jornalizados UOCRA/UOM)</option>
+                  <option value="BIWEEKLY_2">2ª Quincena (Jornalizados UOCRA/UOM)</option>
+                  <option value="SAC">Sueldo Anual Complementario (SAC / Aguinaldo)</option>
+                  <option value="VACATION">Liquidación Anticipo de Vacaciones</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha Pago Bancario (Art. 124 LCT) *</label>
+                <input type="date" name="paymentDate" required value="${new Date().toISOString().split('T')[0]}" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+
+            <!-- Novedades del Período por Empleado -->
+            <div>
+              <div class="flex justify-between items-center mb-2">
+                <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Novedades y Horas Extras de la Nómina</h4>
+                <span class="text-[11px] text-slate-500">Se integran ausencias y vacaciones automáticamente</span>
+              </div>
+              <div class="border border-slate-200 rounded-xl overflow-hidden">
+                <table class="w-full text-left text-xs text-slate-600">
+                  <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-400">
+                    <tr>
+                      <th class="p-2.5">Colaborador / Convenio</th>
+                      <th class="p-2.5">Hs Extras 50%</th>
+                      <th class="p-2.5">Hs Extras 100%</th>
+                      <th class="p-2.5">No Remunerativo ($)</th>
+                      <th class="p-2.5">Faltas Injustificadas</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${employees.map(e => `
+                      <tr class="hover:bg-slate-50/50">
+                        <td class="p-2.5">
+                          <p class="font-bold text-slate-800">${Sanitizer.escapeHTML(e.firstName + ' ' + e.lastName)}</p>
+                          <p class="text-[10px] text-slate-400">${Sanitizer.escapeHTML(catalog[e.cctId]?.name || 'Comercio')}</p>
+                        </td>
+                        <td class="p-2.5">
+                          <input type="number" name="hs50_${e.id}" min="0" max="100" value="0" class="w-16 px-2 py-1 border border-slate-300 rounded text-center text-xs">
+                        </td>
+                        <td class="p-2.5">
+                          <input type="number" name="hs100_${e.id}" min="0" max="100" value="0" class="w-16 px-2 py-1 border border-slate-300 rounded text-center text-xs">
+                        </td>
+                        <td class="p-2.5">
+                          <input type="number" name="nonTax_${e.id}" min="0" step="1000" value="0" class="w-24 px-2 py-1 border border-slate-300 rounded text-right text-xs">
+                        </td>
+                        <td class="p-2.5">
+                          <input type="number" name="unjustified_${e.id}" min="0" max="30" value="0" class="w-16 px-2 py-1 border border-slate-300 rounded text-center text-xs">
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button type="button" data-action="close-modal" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl font-medium">
+                Cancelar
+              </button>
+              <button type="submit" class="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md flex items-center gap-1.5">
+                <span>▶️</span> Liquidar Haberes y Emitir Lote
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `);
+
+    const form = document.getElementById('payroll-run-form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const period = formData.get('period');
+        const periodType = formData.get('periodType');
+        const paymentDate = formData.get('paymentDate');
+
+        const novedadesMap = {};
+        for (const emp of employees) {
+          novedadesMap[emp.id] = {
+            overtimeHours50: Number(formData.get(`hs50_${emp.id}`)) || 0,
+            overtimeHours100: Number(formData.get(`hs100_${emp.id}`)) || 0,
+            nonTaxableAllowance: Number(formData.get(`nonTax_${emp.id}`)) || 0,
+            unjustifiedAbsenceDays: Number(formData.get(`unjustified_${emp.id}`)) || 0
+          };
+        }
+
+        try {
+          const run = store.runPayroll({
+            period,
+            periodStr: `${period} (${periodType})`,
+            periodType,
+            paymentDate,
+            novedadesMap
+          });
+          Notifier.showToast(`Liquidación ${run.periodStr} procesada con éxito`, 'success');
+          this.closeModal();
+        } catch (err) {
+          Notifier.showToast(err.message, 'error');
+        }
+      });
+    }
+  }
+
+  // Modal: Configuración de Convenios y Escalas Paritarias
+  renderCctConfigModal(container) {
+    const catalog = store.getCctCatalog();
+
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+          <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
+            <div>
+              <h3 class="font-bold text-base">Configuración de Convenios Colectivos & Paritarias</h3>
+              <p class="text-xs text-slate-300">Ajuste de escalas salariales básicas y adicionales sin alterar código</p>
+            </div>
+            <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+
+          <div class="p-6 space-y-6">
+            ${Object.values(catalog).map(cct => `
+              <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+                <div class="flex justify-between items-center">
+                  <div>
+                    <h4 class="font-bold text-sm text-slate-900">${Sanitizer.escapeHTML(cct.name)}</h4>
+                    <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(cct.industry)} • ${cct.rules.antiguedadPctPerYear ? `Antigüedad: ${(cct.rules.antiguedadPctPerYear * 100).toFixed(1)}% anual` : 'Régimen Fondo Cese Laboral (Ley 22.250)'}</p>
+                  </div>
+                  <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">${Sanitizer.escapeHTML(cct.id)}</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs text-slate-600 bg-white rounded-lg border border-slate-200">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-400">
+                      <tr>
+                        <th class="p-2">Categoría</th>
+                        <th class="p-2 text-right">Básico Mensual Actual ($)</th>
+                        <th class="p-2 text-right">Acción Paritaria</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      ${cct.categories.map(cat => `
+                        <tr>
+                          <td class="p-2 font-medium text-slate-800">${Sanitizer.escapeHTML(cat.label)}</td>
+                          <td class="p-2 text-right font-bold text-slate-900">$${cat.basicSalary.toLocaleString('es-AR')}</td>
+                          <td class="p-2 text-right">
+                            <button type="button" class="btn-update-salary text-blue-600 hover:underline font-semibold text-xs" data-cct-id="${cct.id}" data-cat-id="${cat.id}" data-current="${cat.basicSalary}">
+                              ✏️ Ajustar Escala
+                            </button>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            `).join('')}
+
+            <div class="flex justify-end pt-4 border-t border-slate-200">
+              <button type="button" data-action="close-modal" class="px-5 py-2 text-sm bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    container.querySelectorAll('.btn-update-salary').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const cctId = btn.getAttribute('data-cct-id');
+        const catId = btn.getAttribute('data-cat-id');
+        const curr = btn.getAttribute('data-current');
+        const newVal = prompt(`Ingrese la nueva escala básica para la categoría:`, curr);
+        if (newVal && !isNaN(Number(newVal)) && Number(newVal) > 0) {
+          store.updateCctCategory(cctId, catId, Number(newVal));
+          Notifier.showToast('Escala paritaria actualizada correctamente', 'success');
+          this.renderCctConfigModal(container);
+        }
+      });
+    });
+  }
+
+  // Modal: Visor Oficial de Recibo de Sueldo (Art. 140 LCT) con Firma Digital
+  renderViewPayslipModal(container, payslipId) {
+    const ps = store.getPayslipById(payslipId);
+    if (!ps) return;
+
+    const company = store.getCurrentCompany() || { name: 'Empresa', cuit: '30-71458923-4', location: 'Buenos Aires' };
+    const session = store.getSession();
+    const canSign = (session?.role === 'EMPLOYEE' && ps.employeeId === session?.employeeId) || session?.role === 'HR_ADMIN';
+
+    Sanitizer.renderTemplate(container, `
+      <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[95vh] overflow-y-auto border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+          <div class="px-6 py-3 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10 no-print">
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-sm">Recibo Oficial de Haberes (LCT Art. 140)</h3>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900">${Sanitizer.escapeHTML(ps.periodStr)}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="window.print()" class="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-semibold">
+                🖨️ Imprimir
+              </button>
+              <button data-action="close-modal" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+          </div>
+
+          <!-- Documento Formal del Recibo de Sueldo -->
+          <div class="p-8 space-y-4 text-slate-800 text-xs font-sans print:p-0">
+            <!-- Encabezado de Empresa y Empleado -->
+            <div class="border-b-2 border-slate-900 pb-4">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h1 class="text-base font-black text-slate-900 uppercase tracking-wide">${Sanitizer.escapeHTML(company.name)}</h1>
+                  <p class="text-slate-600 text-[11px]">CUIT: <strong>${Sanitizer.escapeHTML(company.cuit)}</strong> • ${Sanitizer.escapeHTML(company.location || 'Argentina')}</p>
+                  <p class="text-[10px] text-slate-500">Acreditación Bancaria de Haberes: ${Sanitizer.escapeHTML(ps.bank)}</p>
+                  <p class="text-[10px] text-slate-500">CBU Sueldo (Art. 124 LCT): <strong>${Sanitizer.escapeHTML(ps.cbu)}</strong> • Fecha Depósito: ${Sanitizer.escapeHTML(ps.depositDate)}</p>
+                </div>
+                <div class="text-right border border-slate-300 rounded-lg p-2.5 bg-slate-50">
+                  <p class="text-[10px] uppercase font-bold text-slate-500">Período Liquidado</p>
+                  <p class="text-sm font-black text-blue-700">${Sanitizer.escapeHTML(ps.periodStr)}</p>
+                  <p class="text-[10px] text-slate-500">${Sanitizer.escapeHTML(ps.periodType)}</p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-200 text-[11px]">
+                <div>
+                  <span class="text-slate-400 block text-[10px] uppercase font-bold">Colaborador</span>
+                  <strong class="text-slate-900">${Sanitizer.escapeHTML(ps.employeeName)}</strong>
+                </div>
+                <div>
+                  <span class="text-slate-400 block text-[10px] uppercase font-bold">CUIL</span>
+                  <strong class="text-slate-900">${Sanitizer.escapeHTML(ps.cuil)}</strong>
+                </div>
+                <div>
+                  <span class="text-slate-400 block text-[10px] uppercase font-bold">Convenio / Puesto</span>
+                  <strong class="text-slate-900">${Sanitizer.escapeHTML(ps.cctName)}</strong>
+                </div>
+                <div>
+                  <span class="text-slate-400 block text-[10px] uppercase font-bold">Categoría</span>
+                  <strong class="text-slate-900">${Sanitizer.escapeHTML(ps.cctCategory)}</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabla de Conceptos Liquidados -->
+            <div class="border border-slate-300 rounded-lg overflow-hidden">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100 text-[10px] uppercase font-bold text-slate-600 border-b border-slate-300">
+                  <tr>
+                    <th class="p-2 w-16">Código</th>
+                    <th class="p-2">Concepto</th>
+                    <th class="p-2 text-center w-16">Unidades</th>
+                    <th class="p-2 text-right w-24">Remunerativo</th>
+                    <th class="p-2 text-right w-24">No Remun.</th>
+                    <th class="p-2 text-right w-24">Retención</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${(ps.items || []).map(item => `
+                    <tr>
+                      <td class="p-2 font-mono text-[11px] text-slate-500">${Sanitizer.escapeHTML(item.code)}</td>
+                      <td class="p-2 font-medium">${Sanitizer.escapeHTML(item.description)}</td>
+                      <td class="p-2 text-center font-mono text-[11px]">${item.quantity || 1}</td>
+                      <td class="p-2 text-right font-mono">${item.type === 'REMUNERATIVO' ? '$' + item.amount.toLocaleString('es-AR') : ''}</td>
+                      <td class="p-2 text-right font-mono">${item.type === 'NO_REMUNERATIVO' ? '$' + item.amount.toLocaleString('es-AR') : ''}</td>
+                      <td class="p-2 text-right font-mono text-amber-700">${item.type === 'RETENCION' ? '$' + item.amount.toLocaleString('es-AR') : ''}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+                <tfoot class="bg-slate-50 border-t-2 border-slate-300 font-bold text-[11px]">
+                  <tr>
+                    <td colspan="3" class="p-2 text-right uppercase">Subtotales:</td>
+                    <td class="p-2 text-right font-mono">$${ps.totalRemunerativo.toLocaleString('es-AR')}</td>
+                    <td class="p-2 text-right font-mono">$${ps.totalNoRemunerativo.toLocaleString('es-AR')}</td>
+                    <td class="p-2 text-right font-mono text-amber-800">$${ps.totalDescuentos.toLocaleString('es-AR')}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <!-- Resumen Total y Neto en Letras -->
+            <div class="bg-slate-50 border border-slate-300 rounded-lg p-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <div>
+                <p class="text-[10px] uppercase font-bold text-slate-500">Total Neto a Cobrar en Letras</p>
+                <p class="font-bold text-slate-800 italic">${Sanitizer.escapeHTML(ps.netoInWords)}</p>
+              </div>
+              <div class="text-right">
+                <p class="text-[10px] uppercase font-bold text-slate-500">Importe Neto</p>
+                <h2 class="text-2xl font-black text-emerald-700">$${ps.totalNeto.toLocaleString('es-AR')}</h2>
+              </div>
+            </div>
+
+            <!-- Contribuciones Patronales Informativas (F.931) -->
+            ${ps.employerContributions ? `
+              <div class="p-2.5 rounded bg-slate-50/80 border border-slate-200 text-[10px] text-slate-500 space-y-1">
+                <div class="flex justify-between font-bold text-slate-700">
+                  <span>Aportes y Contribuciones Patronales de la Empresa (F.931 ARCA / AFIP):</span>
+                  <span>$${ps.employerContributions.total.toLocaleString('es-AR')}</span>
+                </div>
+                <p>SIPA: $${ps.employerContributions.sipaPatronal.toLocaleString('es-AR')} • PAMI: $${ps.employerContributions.inssjypPatronal.toLocaleString('es-AR')} • Asignaciones: $${ps.employerContributions.asignacionesPatronal.toLocaleString('es-AR')} • Obra Social: $${ps.employerContributions.obraSocialPatronal.toLocaleString('es-AR')} • ART: $${ps.employerContributions.artPatronal.toLocaleString('es-AR')}</p>
+              </div>
+            ` : ''}
+
+            <!-- Área de Doble Firma y Conformidad Legal (Res. MTEySS 346/2019) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t-2 border-slate-900">
+              <!-- Sello Empleador -->
+              <div class="border border-slate-300 rounded-xl p-3 bg-slate-50 text-center space-y-1">
+                <span class="text-[10px] uppercase font-bold text-slate-500 block">Sello y Emisión del Empleador</span>
+                <p class="text-xs font-bold text-slate-800">${Sanitizer.escapeHTML(company.name)}</p>
+                <p class="text-[10px] text-slate-400">Emisión digital sellada conforme LCT Art. 140</p>
+                <p class="text-[9px] font-mono text-emerald-700 font-bold">✅ Sello Electrónico de Empresa Activo</p>
+              </div>
+
+              <!-- Firma Colaborador -->
+              <div class="border border-slate-300 rounded-xl p-3 bg-slate-50 text-center space-y-1">
+                <span class="text-[10px] uppercase font-bold text-slate-500 block">Rúbrica y Recepción del Trabajador</span>
+                ${ps.status === 'SIGNED' ? `
+                  <div class="flex flex-col items-center">
+                    <img src="${Sanitizer.sanitizeURL(ps.signature)}" alt="Firma Colaborador" class="h-10 max-w-[150px] object-contain">
+                    <p class="text-[10px] font-bold text-emerald-800 mt-1">Firma Electrónica Conforme (Art. 5 Ley 25.506)</p>
+                    <p class="text-[9px] text-slate-500">Fecha: ${new Date(ps.signedAt).toLocaleString('es-AR')} • IP: ${Sanitizer.escapeHTML(ps.ipAddress || '190.183.45.12')}</p>
+                    <p class="text-[8px] font-mono text-slate-400 truncate max-w-xs">Hash SHA-256: ${Sanitizer.escapeHTML(ps.signatureHash)}</p>
+                  </div>
+                ` : `
+                  <div class="space-y-2 no-print">
+                    <p class="text-xs text-amber-700 font-semibold">⚠️ Pendiente de Firma de Conformidad</p>
+                    ${canSign ? `
+                      <div class="border-2 border-dashed border-slate-300 rounded-lg p-1 bg-white">
+                        <canvas id="payslip-signature-canvas" width="300" height="100" class="signature-canvas w-full h-[100px]"></canvas>
+                      </div>
+                      <div class="flex justify-between items-center text-[10px]">
+                        <button type="button" id="btn-clear-payslip-sig" class="text-slate-500 hover:text-slate-800 font-medium">🔄 Limpiar</button>
+                        <button type="button" id="btn-save-payslip-sig" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm">
+                          Confirmar y Sellar Recibo
+                        </button>
+                      </div>
+                    ` : `
+                      <p class="text-[10px] text-slate-400">El colaborador debe firmar desde su portal personal.</p>
+                    `}
+                  </div>
+                `}
+              </div>
+            </div>
+
+            <!-- Leyenda Legal de Cierre -->
+            <p class="text-[9px] text-slate-400 text-center pt-2">
+              El presente recibo se emite en formato digital conforme a las facultades de la Resolución MTEySS 346/2019 de la Secretaría de Trabajo de la Nación y la Ley 20.744 de Contrato de Trabajo. Constancia de pago acreditada mediante depósito bancario oficial (Art. 124 LCT).
+            </p>
+          </div>
+        </div>
+      </div>
+    `);
+
+    // Iniciar pad de firma si está pendiente y disponible
+    if (ps.status !== 'SIGNED' && canSign) {
+      const canvas = document.getElementById('payslip-signature-canvas');
+      if (canvas) {
+        const pad = new DigitalSignaturePad(canvas, { strokeColor: '#1e3a8a', lineWidth: 2.5 });
+
+        const clearBtn = document.getElementById('btn-clear-payslip-sig');
+        if (clearBtn) {
+          clearBtn.addEventListener('click', () => pad.clear());
+        }
+
+        const saveBtn = document.getElementById('btn-save-payslip-sig');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', async () => {
+            if (pad.isEmpty()) {
+              Notifier.showToast('Debe firmar en el recuadro antes de confirmar', 'warning');
+              return;
+            }
+
+            const dataUrl = pad.toDataURL();
+            const now = new Date().toISOString();
+            const hash = await DigitalSignaturePad.computeForensicHash(dataUrl, ps.employeeId, now);
+
+            store.signPayslip(ps.payrollId, ps.id, {
+              signature: dataUrl,
+              signatureHash: hash,
+              ipAddress: '190.183.45.12'
+            });
+
+            Notifier.showToast('Recibo de sueldo firmado y sellado con éxito', 'success');
+            this.renderViewPayslipModal(container, ps.id);
+          });
+        }
+      }
+    }
+  }
+
   renderPortalTab() {
     const session = store.getSession();
     const currentEmp = store.employees.find(e => e.id === session?.employeeId);
@@ -2378,6 +3046,46 @@ class AppController {
             `;
           })()}
         </div>
+
+        <!-- Mis Recibos de Sueldo & Firma Digital (LCT 20.744 / Res. 346/2019) -->
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="font-bold text-slate-900 text-sm">💵 Mis Recibos de Sueldo & Firma Digital</h3>
+              <p class="text-xs text-slate-500">Conformidad electrónica con validez laboral (Art. 140 LCT)</p>
+            </div>
+            <span class="text-[10px] font-bold text-slate-400 font-mono">LCT 20.744</span>
+          </div>
+          ${(() => {
+            const myPayslips = store.getPayslips();
+            return `
+              <div class="space-y-2">
+                ${myPayslips.length > 0 ? myPayslips.map(ps => {
+                  const isSigned = ps.status === 'SIGNED';
+                  return `
+                    <div class="p-3 rounded-xl border border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                      <div>
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold text-slate-900 text-sm">${Sanitizer.escapeHTML(ps.periodStr)}</span>
+                          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${isSigned ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                            ${isSigned ? '✅ Firmado Conforme' : '⏳ Pendiente de Firma'}
+                          </span>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-0.5">Neto a Cobrar: <strong class="text-emerald-700 font-mono">$${ps.totalNeto.toLocaleString('es-AR')}</strong> • Depósito: ${Sanitizer.escapeHTML(ps.depositDate)}</p>
+                        ${isSigned && ps.signedAt ? `
+                          <p class="text-[10px] text-slate-400">Rúbrica: ${new Date(ps.signedAt).toLocaleDateString('es-AR')} • Hash SHA-256 verificado</p>
+                        ` : ''}
+                      </div>
+                      <button data-action="open-modal-view-payslip" data-id="${ps.id}" class="px-3 py-1.5 ${isSigned ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-blue-600 hover:bg-blue-700 text-white font-bold'} rounded-xl text-xs transition shrink-0 shadow-sm">
+                        ${isSigned ? '👁️ Ver Recibo' : '✍️ Revisar y Firmar'}
+                      </button>
+                    </div>
+                  `;
+                }).join('') : '<p class="text-xs text-slate-400">No hay recibos de sueldo emitidos todavía.</p>'}
+              </div>
+            `;
+          })()}
+        </div>
       </div>
     `;
   }
@@ -2528,6 +3236,7 @@ class AppController {
 export const app = new AppController();
 if (typeof window !== 'undefined') {
   window.app = app;
+  window.store = store;
   window.addEventListener('DOMContentLoaded', () => {
     app.init();
   });

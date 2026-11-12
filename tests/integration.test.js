@@ -222,4 +222,95 @@ export async function runIntegrationTests(harness) {
   const leavesCountBefore = store.getLeaves().length;
   store.deleteLeave(newLeave.id);
   harness.assert(store.getLeaves().length === leavesCountBefore - 1, 'deleteLeave elimina la licencia del registro');
+
+  // --- Capa 2: Integración de Liquidación de Sueldos & Recibos Digitales (LCT 20.744) ---
+  store.setSession({
+    userId: 'usr_admin_alimentos',
+    role: 'HR_ADMIN',
+    companyId: compAlimentosId,
+    token: 'ADMIN_TOKEN'
+  });
+
+  // 1. Ejecutar liquidación mensual
+  const newPayrollRun = store.runPayroll({
+    period: '2026-11',
+    periodStr: 'Noviembre 2026',
+    periodType: 'MONTHLY'
+  });
+
+  harness.assert(newPayrollRun && newPayrollRun.id.startsWith('pay_'), 'runPayroll genera corrida con ID');
+  harness.assert(newPayrollRun.payslips.length >= 3, 'runPayroll genera recibos para todos los colaboradores de la empresa');
+  harness.assert(newPayrollRun.totalNeto > 0, 'runPayroll computa total neto del lote');
+  harness.assert(newPayrollRun.totalContribucionesPatronales > 0, 'runPayroll computa contribuciones patronales F.931');
+
+  // 2. Consulta y búsqueda de recibos
+  const companyPayrolls = store.getPayrolls();
+  harness.assert(companyPayrolls.some(p => p.id === newPayrollRun.id), 'getPayrolls incluye la nueva corrida');
+
+  const allPayslips = store.getPayslips();
+  harness.assert(allPayslips.length >= 3, 'getPayslips retorna lista de recibos emitidos');
+
+  const targetPs = newPayrollRun.payslips.find(ps => ps.employeeId === empTarget.id);
+  harness.assert(targetPs !== undefined, 'Existe recibo generado para el colaborador target');
+
+  const foundPs = store.getPayslipById(targetPs.id);
+  harness.assert(foundPs !== null && foundPs.id === targetPs.id, 'getPayslipById localiza el recibo individual');
+
+  // 3. Aislamiento y Confinamiento de Recibos para Rol Colaborador (Zero Cross-Employee Leak)
+  store.setSession({
+    userId: empTarget.id,
+    employeeId: empTarget.id,
+    role: 'EMPLOYEE',
+    companyId: compAlimentosId,
+    token: 'EMP_TOKEN'
+  });
+
+  const empPayrolls = store.getPayrolls();
+  harness.assert(empPayrolls.every(p => p.payslips.every(ps => ps.employeeId === empTarget.id)), 'Confinamiento: Colaborador solo ve sus propios recibos');
+
+  // Intento de firmar recibo de otro colaborador -> Debe ser rechazado
+  const otherPs = newPayrollRun.payslips.find(ps => ps.employeeId !== empTarget.id);
+  if (otherPs) {
+    let unauthorizedBlocked = false;
+    try {
+      store.signPayslip(newPayrollRun.id, otherPs.id, {
+        signature: 'mock_sig',
+        signatureHash: 'mock_hash',
+        ipAddress: '127.0.0.1'
+      });
+    } catch {
+      unauthorizedBlocked = true;
+    }
+    harness.assert(unauthorizedBlocked === true, 'Confinamiento de Firma: Colaborador NO puede firmar recibos ajenos');
+  }
+
+  // Firma legítima del propio recibo con hash forense
+  const signedPs = store.signPayslip(newPayrollRun.id, targetPs.id, {
+    signature: 'data:image/svg+xml;base64,mockEmployeeSignature',
+    signatureHash: 'hash-sha256-forensic-test',
+    ipAddress: '192.168.1.100'
+  });
+
+  harness.assert(signedPs && signedPs.status === 'SIGNED', 'signPayslip actualiza el estado a SIGNED');
+  harness.assert(signedPs.signatureHash === 'hash-sha256-forensic-test', 'signPayslip estampa hash criptográfico');
+  harness.assert(signedPs.ipAddress === '192.168.1.100', 'signPayslip registra dirección IP del firmante');
+
+  // 4. Actualización paritaria de convenios por RRHH
+  store.setSession({
+    userId: 'usr_admin_alimentos',
+    role: 'HR_ADMIN',
+    companyId: compAlimentosId,
+    token: 'ADMIN_TOKEN'
+  });
+
+  store.updateCctCategory('CCT_130_75', 'ADM_A', 995000);
+  const updatedCatalog = store.getCctCatalog();
+  const admCat = updatedCatalog.CCT_130_75.categories.find(c => c.id === 'ADM_A');
+  harness.assert(admCat && admCat.basicSalary === 995000, 'updateCctCategory actualiza básico de categoría en catálogo editable');
+
+  // 5. Eliminación de corrida de liquidación
+  const countBeforeDel = store.getPayrolls().length;
+  const deleted = store.deletePayroll(newPayrollRun.id);
+  harness.assert(deleted === true, 'deletePayroll elimina la liquidación');
+  harness.assert(store.getPayrolls().length === countBeforeDel - 1, 'Lote de liquidación removido del store');
 }
