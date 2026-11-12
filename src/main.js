@@ -118,9 +118,24 @@ class AppController {
         break;
 
       case 'view-document':
-        const docUrl = target.getAttribute('data-doc-url');
-        const docTitle = target.getAttribute('data-doc-title') || 'Documento / Carnet';
-        this.openDocumentModal(docUrl, docTitle);
+        let docUrl = target.getAttribute('data-doc-url');
+        const empIdForDoc = target.getAttribute('data-emp-id');
+        const credIdForDoc = target.getAttribute('data-cred-id');
+        let docTitle = target.getAttribute('data-doc-title') || 'Documento / Carnet';
+
+        if (!docUrl && empIdForDoc && credIdForDoc) {
+          const empObj = store.getEmployeeById(empIdForDoc);
+          const credObj = (empObj?.credentials || []).find(cr => cr.id === credIdForDoc);
+          if (credObj) {
+            docUrl = credObj.attachment;
+            docTitle = credObj.customLabel || credObj.type;
+          }
+        }
+        if (docUrl) {
+          this.openDocumentModal(docUrl, docTitle);
+        } else {
+          Notifier.showToast('No se encontró el archivo del comprobante', 'warning');
+        }
         break;
 
       case 'send-whatsapp-alert':
@@ -1343,66 +1358,126 @@ class AppController {
     const employees = store.getEmployees();
 
     const employeeCards = employees.map(emp => {
-      const skillsHtml = (emp.skills || []).map(s => `
-        <span class="px-2 py-0.5 rounded text-[11px] font-medium ${s.source === 'PREVIOUS_EXPERIENCE' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-700'}">
-          ${Sanitizer.escapeHTML(s.name)} (Nv.${s.level})
-          ${s.source === 'PREVIOUS_EXPERIENCE' ? '⭐' : ''}
-        </span>
-      `).join('');
+      const initials = ((emp.firstName?.[0] || '') + (emp.lastName?.[0] || '')).toUpperCase() || 'TT';
+
+      const skillsHtml = (emp.skills || []).map(s => {
+        const isPrev = s.source === 'PREVIOUS_EXPERIENCE';
+        return `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${isPrev ? 'bg-purple-50 text-purple-800 border border-purple-200/80 shadow-2xs' : 'bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'}">
+            <span>${isPrev ? '⭐' : '💼'}</span>
+            <span>${Sanitizer.escapeHTML(s.name)}</span>
+            <span class="text-[10px] font-bold ${isPrev ? 'text-purple-600 bg-purple-100/80' : 'text-slate-500 bg-slate-200'} px-1 py-0.2 rounded">Nv.${s.level}</span>
+          </span>
+        `;
+      }).join('');
 
       const credsHtml = (emp.credentials || []).map(c => {
         const evalRes = ExpirationEngine.evaluateDate(c.expirationDate);
         return `
-          <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
-            <div>
-              <span class="text-slate-800 font-semibold block">${Sanitizer.escapeHTML(c.customLabel || c.type)}</span>
-              <span class="text-[10px] text-slate-400">${(c.categories || []).join(', ') || 'N/A'}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              ${c.attachment ? `
-                <button data-action="view-document" data-doc-url="${Sanitizer.sanitizeURL(c.attachment)}" data-doc-title="${Sanitizer.escapeHTML(c.customLabel || 'Carnet')}" class="px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[10px] font-bold">
-                  👁️ Ver Foto
-                </button>
-              ` : ''}
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${evalRes.status.badgeClass}">
+          <div class="p-2.5 rounded-xl border border-slate-200/80 bg-white hover:border-slate-300 transition space-y-1.5 shadow-2xs">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-slate-900 truncate">${Sanitizer.escapeHTML(c.customLabel || c.type)}</span>
+              <span class="${evalRes.status.badgeClass} scale-90 origin-right">
                 ${Sanitizer.escapeHTML(evalRes.status.label)}
               </span>
+            </div>
+            ${(c.categories || []).length > 0 ? `
+              <p class="text-[11px] text-slate-500 leading-tight">${Sanitizer.escapeHTML(c.categories.join(', '))}</p>
+            ` : ''}
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
+              <span class="text-slate-500">Vence: <strong class="${evalRes.daysRemaining < 0 ? 'text-red-600' : 'text-slate-700'}">${Sanitizer.escapeHTML(evalRes.formattedDate)}</strong></span>
+              ${c.attachment ? `
+                <button data-action="view-document" data-emp-id="${emp.id}" data-cred-id="${c.id}" class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/60 rounded-md font-semibold text-[10px] transition" title="Ver Comprobante">
+                  👁️ Comprobante
+                </button>
+              ` : `
+                <span class="text-[10px] text-slate-400">Sin archivo</span>
+              `}
             </div>
           </div>
         `;
       }).join('');
 
       return `
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition space-y-4">
-          <div class="flex justify-between items-start">
-            <div>
-              <h3 class="text-base font-bold text-slate-900">${Sanitizer.escapeHTML(emp.firstName + ' ' + emp.lastName)}</h3>
-              <p class="text-xs font-semibold text-blue-600">${Sanitizer.escapeHTML(emp.role)}</p>
-              <p class="text-xs text-slate-500">${Sanitizer.escapeHTML(emp.department)} • DNI: ${Sanitizer.escapeHTML(emp.dni)}</p>
+        <div class="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md transition flex flex-col justify-between space-y-4">
+          <!-- Cabecera de Identidad del Empleado -->
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3 overflow-hidden">
+              <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shadow-xs shrink-0">
+                ${initials}
+              </div>
+              <div class="truncate">
+                <h3 class="text-base font-extrabold text-slate-900 leading-tight truncate">
+                  ${Sanitizer.escapeHTML(emp.firstName + ' ' + emp.lastName)}
+                </h3>
+                <div class="mt-1">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/70 truncate max-w-full">
+                    ${Sanitizer.escapeHTML(emp.role)}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div class="flex gap-1.5">
-              <button data-action="open-modal-edit-employee" data-id="${emp.id}" class="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100" title="Editar">✏️</button>
-              <button data-action="delete-employee" data-id="${emp.id}" class="p-1.5 text-slate-500 hover:text-red-600 rounded-lg hover:bg-slate-100" title="Baja">🗑️</button>
+
+            <!-- Botones de Acción de Ficha -->
+            <div class="flex items-center gap-1 shrink-0">
+              <button data-action="open-modal-edit-employee" data-id="${emp.id}" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar Legajo">
+                <svg class="w-4 h-4 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+              </button>
+              <button data-action="delete-employee" data-id="${emp.id}" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Dar de Baja">
+                <svg class="w-4 h-4 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
             </div>
           </div>
 
-          <div>
-            <div class="flex justify-between items-center mb-1.5">
-              <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Habilidades & Experiencia:</p>
-              <button data-action="open-modal-add-skill" data-id="${emp.id}" class="text-[11px] text-blue-600 hover:underline font-semibold">+ Sumar Skill</button>
+          <!-- Cuadrícula de Datos Personales & Contacto -->
+          <div class="bg-slate-50/80 rounded-xl p-3 border border-slate-100 grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">DNI</span>
+              <span class="font-bold text-slate-800">${Sanitizer.escapeHTML(emp.dni)}</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Área / Sector</span>
+              <span class="font-medium text-slate-700 truncate block">${Sanitizer.escapeHTML(emp.department || 'Planta')}</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Contacto</span>
+              <span class="font-medium text-slate-700 truncate block">${Sanitizer.escapeHTML(emp.phone || emp.email || 'Sin contacto')}</span>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Fecha Ingreso</span>
+              <span class="font-medium text-slate-700">${emp.hireDate ? new Date(emp.hireDate + 'T00:00:00').toLocaleDateString('es-AR') : '-'}</span>
+            </div>
+          </div>
+
+          <!-- Sección: Habilidades & Oficios -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                🎯 Habilidades & Oficios
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">${(emp.skills || []).length}</span>
+              </span>
+              <button data-action="open-modal-add-skill" data-id="${emp.id}" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline transition">
+                + Sumar Skill
+              </button>
             </div>
             <div class="flex flex-wrap gap-1.5">
-              ${skillsHtml || '<span class="text-xs text-slate-400">Sin habilidades registradas</span>'}
+              ${skillsHtml || '<span class="text-xs text-slate-400 italic py-1">Sin habilidades registradas</span>'}
             </div>
           </div>
 
-          <div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
-            <div class="flex justify-between items-center mb-1.5">
-              <p class="text-xs font-bold uppercase tracking-wider text-slate-600">Habilitaciones & Comprobantes:</p>
-              <button data-action="open-modal-add-cred" data-id="${emp.id}" class="text-[11px] text-blue-600 hover:underline font-semibold">+ Cargar Carnet</button>
+          <!-- Sección: Habilitaciones & Carnets Normados -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                🪪 Habilitaciones & Carnets
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">${(emp.credentials || []).length}</span>
+              </span>
+              <button data-action="open-modal-add-cred" data-id="${emp.id}" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline transition">
+                + Cargar Carnet
+              </button>
             </div>
-            <div>
-              ${credsHtml || '<p class="text-xs text-slate-400">Sin carnets asociados</p>'}
+            <div class="space-y-2">
+              ${credsHtml || '<p class="text-xs text-slate-400 italic py-1">Sin carnets asociados</p>'}
             </div>
           </div>
         </div>
@@ -1414,13 +1489,13 @@ class AppController {
         <div class="flex flex-wrap justify-between items-center gap-4">
           <div>
             <h2 class="text-xl font-bold text-slate-900">Legajos del Personal</h2>
-            <p class="text-xs text-slate-500">Nómina operativa de la empresa. Asigne habilidades y gestione carnets con fotos respaldatorias.</p>
+            <p class="text-xs text-slate-500">Nómina operativa de la empresa. Gestione habilidades, carnets y documentos respaldatorios con jerarquía clara.</p>
           </div>
           <div class="flex gap-2">
-            <button data-action="export-employees-csv" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl flex items-center gap-1.5">
+            <button data-action="export-employees-csv" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition">
               📥 Exportar Nómina CSV
             </button>
-            <button data-action="open-modal-new-employee" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md flex items-center gap-2">
+            <button data-action="open-modal-new-employee" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-md flex items-center gap-2 transition">
               ➕ Nuevo Colaborador
             </button>
           </div>
