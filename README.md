@@ -200,8 +200,12 @@ node ../AiAppFactory/tools/security-guardian/index.mjs .
 
 ## 📚 Documentación Estratégica & Roadmap de Expansión
 
-- **Estudio de Mercado Exhaustivo:** [docs/market_research.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/market_research.md) — Análisis 1 vs Todos frente al mercado argentino (Humand, Buk, Rankmi, Lucca, Workey, GeoVictoria), arquitectura técnica comparativa, estrategias de pricing (CAC vs LTV) y matriz de barreras de entrada.
-- **Plan Maestro de Expansión HR 360°:** [docs/ROADMAP_360.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/ROADMAP_360.md) — Hoja de ruta estratégica en 5 fases (EPP Oficial, Ausentismo & Licencias CCT, Polivalencia & Matriz 9-Box, Infraestructura Multi-Tenant Soberana, y Conectores de Liquidación / ARCA Libro de Sueldos Digital).
+- **Índice Central de Documentación:** [docs/README.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/README.md) — Índice completo y organizado de toda la base de conocimiento y arquitectura.
+- **Auditoría & Estrategia Hormozi:** [docs/audit_and_hormozi_pricing.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/audit_and_hormozi_pricing.md) — Benchmark exhaustivo vs competidores de LatAm (Buk, Humand, Sesame HR, Factorial), análisis de brechas y matriz de pricing $100M Offers con garantía blindada.
+- **Arquitectura Salarial & Validez Legal:** [docs/payroll_and_digital_payslips_legal_architecture.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/payroll_and_digital_payslips_legal_architecture.md) — Análisis del doble escudo legal (Art. 124 LCT banco + Res. 346/2019 firma digital forense), principio de pago a cuenta (Art. 260 LCT), los 5 CCTs de Argentina y especificación de 500 bytes para el Libro de Sueldos Digital (LSD ARCA).
+- **Informe de Verificación v1.0.11:** [docs/walkthrough_v1.0.11.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/walkthrough_v1.0.11.md) — Evidencia de 204 tests automatizados aprobados (100%), auditoría AppSec 100/100 y 0 errores en consola.
+- **Estudio de Mercado Exhaustivo:** [docs/market_research.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/market_research.md) — Análisis comparativo 1 vs Todos frente al mercado de software de RRHH en Argentina.
+- **Plan Maestro de Expansión HR 360°:** [docs/ROADMAP_360.md](file:///c:/Users/Regondi%20Calidad/Desktop/QM/TalentTrack/docs/ROADMAP_360.md) — Hoja de ruta estratégica en 5 fases.
 
 ---
 
